@@ -5,7 +5,8 @@ function(argus_project_target target)
         CXX_EXTENSIONS OFF
     )
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /utf-8)
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /utf-8 /sdl /guard:cf)
+        target_link_options(${target} PRIVATE /guard:cf)
     else()
         target_compile_options(${target} PRIVATE
             -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror
