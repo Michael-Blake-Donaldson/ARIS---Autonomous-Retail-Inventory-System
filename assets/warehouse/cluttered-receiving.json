@@ -22,7 +22,7 @@
   ],
   "actors": [
     {"id":"inbound-u-boat","kind":"u-boat","startMm":[5100,2800],"endMm":[7200,2800],"sizeMm":[1100,600],"legTicks":85},
-    {"id":"temporary-staging","kind":"temporary-obstruction","startMm":[11600,1800],"endMm":[14500,1800],"sizeMm":[900,700],"legTicks":150},
+    {"id":"temporary-staging","kind":"temporary-obstruction","startMm":[11600,1800],"endMm":[14500,1800],"sizeMm":[900,700],"legTicks":150,"activeTicks":[20,180]},
     {"id":"reserve-worker","kind":"worker","startMm":[9300,9200],"endMm":[13000,9200],"sizeMm":[450,450],"legTicks":90}
   ],
   "items": [

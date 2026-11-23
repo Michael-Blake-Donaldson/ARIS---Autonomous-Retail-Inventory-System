@@ -4,6 +4,11 @@
 
 namespace argus::simulation::detail {
 
+bool active_at(const Actor &actor, std::uint64_t tick) noexcept {
+    return !actor.active_window ||
+           (tick >= actor.active_window->from && tick < actor.active_window->until);
+}
+
 world::RectMm sweep(const Actor &actor) noexcept {
     return {{std::min(actor.start.x, actor.end.x), std::min(actor.start.y, actor.end.y)},
             {std::max(actor.start.x, actor.end.x) + actor.size.x,

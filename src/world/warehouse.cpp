@@ -102,7 +102,9 @@ Snapshot Warehouse::snapshot(std::uint64_t tick) const {
     }
     view.actors.reserve(scenario.actors.size());
     for (const auto &actor : scenario.actors) {
-        view.actors.push_back({actor.id, actor.kind, actor_bounds(actor, tick)});
+        if (detail::active_at(actor, tick)) {
+            view.actors.push_back({actor.id, actor.kind, actor_bounds(actor, tick)});
+        }
     }
     return view;
 }
@@ -122,7 +124,8 @@ bool Warehouse::collides(PointMm center, std::int32_t radius, std::uint64_t tick
         }
     }
     return std::ranges::any_of(scenario.actors, [center, radius, tick](const detail::Actor &actor) {
-        return touches_disk(actor_bounds(actor, tick), center, radius);
+        return detail::active_at(actor, tick) &&
+               touches_disk(actor_bounds(actor, tick), center, radius);
     });
 }
 
@@ -143,7 +146,7 @@ std::vector<RectMm> SensorQuery::obstacles(RectMm region, std::uint64_t tick) co
     }
     for (const auto &actor : state.scenario.actors) {
         const auto bounds = actor_bounds(actor, tick);
-        if (overlaps(region, bounds)) {
+        if (detail::active_at(actor, tick) && overlaps(region, bounds)) {
             result.push_back(bounds);
         }
     }

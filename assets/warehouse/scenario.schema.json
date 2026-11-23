@@ -209,8 +209,21 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 3600
+          },
+          "activeTicks": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "integer", "minimum": 0, "maximum": 999999 },
+              { "type": "integer", "minimum": 1, "maximum": 1000000 }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
           }
-        }
+        },
+        "if": { "properties": { "kind": { "const": "temporary-obstruction" } } },
+        "then": { "required": ["activeTicks"] },
+        "else": { "not": { "required": ["activeTicks"] } }
       }
     },
     "items": {

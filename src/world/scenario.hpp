@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,11 @@ struct Solid {
     std::string aisle;
 };
 
+struct ActiveWindow {
+    std::uint64_t from;
+    std::uint64_t until;
+};
+
 struct Actor {
     std::string id;
     world::ActorKind kind;
@@ -26,6 +32,7 @@ struct Actor {
     world::PointMm size;
     std::uint32_t leg_ticks;
     std::uint32_t phase;
+    std::optional<ActiveWindow> active_window;
 };
 
 struct Scenario {
@@ -43,6 +50,7 @@ struct Scenario {
 [[nodiscard]] Result<Scenario, ScenarioError> decode(std::string_view input);
 [[nodiscard]] world::RectMm sweep(const Actor &actor) noexcept;
 [[nodiscard]] world::RectMm actor_bounds(const Actor &actor, std::uint64_t tick) noexcept;
+[[nodiscard]] bool active_at(const Actor &actor, std::uint64_t tick) noexcept;
 [[nodiscard]] bool inside_floor(world::RectMm floor, world::PointMm center,
                                 std::int32_t radius_mm) noexcept;
 

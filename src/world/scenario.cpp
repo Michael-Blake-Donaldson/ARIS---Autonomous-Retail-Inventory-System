@@ -230,17 +230,27 @@ void read_actors(Scenario &scenario, const Json &values, std::set<std::string> &
     scenario.actors.reserve(values.size());
     Random random{scenario.seed};
     for (const auto &value : values) {
-        fields(value, {"id", "kind", "startMm", "endMm", "sizeMm", "legTicks"});
         const auto actor_kind = kind<ActorKind>(
             value.at("kind"), {{"worker", ActorKind::worker},
                                {"cart", ActorKind::cart},
                                {"u-boat", ActorKind::u_boat},
                                {"temporary-obstruction", ActorKind::temporary_obstruction}});
+        std::optional<ActiveWindow> active_window;
+        if (actor_kind == ActorKind::temporary_obstruction) {
+            fields(value, {"id", "kind", "startMm", "endMm", "sizeMm", "legTicks", "activeTicks"});
+            const auto &times = value.at("activeTicks");
+            array_size(times, 2, 2);
+            constexpr std::uint64_t tick_limit = 1000000;
+            const auto from = number(times.at(0), 0, tick_limit - 1);
+            active_window = ActiveWindow{from, number(times.at(1), from + 1, tick_limit)};
+        } else {
+            fields(value, {"id", "kind", "startMm", "endMm", "sizeMm", "legTicks"});
+        }
         const auto leg = static_cast<std::uint32_t>(number(value.at("legTicks"), 1, 3600));
         Actor actor{identifier(value.at("id")), actor_kind,
                     point(value.at("startMm")), point(value.at("endMm")),
                     point(value.at("sizeMm")),  leg,
-                    random.next() % (2U * leg)};
+                    random.next() % (2U * leg), active_window};
         unique(ids, actor.id);
         const auto bounds = sweep(actor);
         if (actor.size.x == 0 || actor.size.y == 0 || actor.start == actor.end ||

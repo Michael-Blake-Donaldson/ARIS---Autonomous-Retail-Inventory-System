@@ -135,6 +135,26 @@ TEST(Warehouse, KeepsRendererCopiesIndependentAndSensorQueriesRegional) {
     EXPECT_TRUE(sensor.tags({{2400, 6400}, {2200, 6200}}).empty());
 }
 
+TEST(Warehouse, TemporaryObstructionsShareTheSameLifetimeAcrossQueries) {
+    const auto fixture = std::get<std::string_view>(fixture_json("cluttered-receiving"));
+    const auto warehouse = std::get<Warehouse>(Warehouse::from_json(fixture));
+    const auto before = warehouse.snapshot(19);
+    const auto during = warehouse.snapshot(20);
+    const auto after = warehouse.snapshot(180);
+    ASSERT_EQ(during.actors.size(), before.actors.size() + 1);
+    EXPECT_EQ(after.actors.size(), before.actors.size());
+    const auto active =
+        std::ranges::find(during.actors, ActorKind::temporary_obstruction, &ActorView::kind);
+    ASSERT_NE(active, during.actors.end());
+    EXPECT_FALSE(warehouse.collides(active->bounds.min, 50, 19));
+    EXPECT_TRUE(warehouse.collides(active->bounds.min, 50, 20));
+    EXPECT_FALSE(warehouse.collides(active->bounds.min, 50, 180));
+    const SensorQuery sensor{warehouse};
+    EXPECT_EQ(sensor.obstacles(active->bounds, 20).size(), 1U);
+    EXPECT_TRUE(sensor.obstacles(active->bounds, 180).empty());
+    EXPECT_EQ(rejected(replace(fixture, "[20,180]", "[180,20]")), ScenarioError::invalid_schema);
+}
+
 TEST(ScenarioImport, RejectsMalformedDuplicateAndUnsupportedJson) {
     EXPECT_EQ(rejected("{"), ScenarioError::malformed_json);
     EXPECT_EQ(rejected(std::string{small_fixture()} + " {}"), ScenarioError::malformed_json);
