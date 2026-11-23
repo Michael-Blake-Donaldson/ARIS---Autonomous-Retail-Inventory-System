@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "scenarioId": 201,
+  "seed": 5489,
+  "sizeMm": [14000,10500],
+  "robot": {"spawnMm":[5500,1900],"radiusMm":350},
+  "fixtures": [
+    {"id":"west-partition","kind":"wall","boundsMm":[0,3400,4600,200]},
+    {"id":"east-partition","kind":"wall","boundsMm":[6600,3400,7400,200]},
+    {"id":"west-rack","kind":"rack","boundsMm":[2100,6000,1300,3700],"aisle":"main-aisle","shelfHeightsMm":[420,1050,1750]},
+    {"id":"east-rack","kind":"rack","boundsMm":[7900,6000,1300,3700],"aisle":"east-aisle","shelfHeightsMm":[420,1050,1750]}
+  ],
+  "zones": [
+    {"id":"main-aisle","kind":"aisle","boundsMm":[3400,4600,4500,5600]},
+    {"id":"east-aisle","kind":"aisle","boundsMm":[9200,4600,4300,5600]},
+    {"id":"stockroom-door","kind":"doorway","boundsMm":[4600,3400,2000,200]},
+    {"id":"receiving","kind":"receiving","boundsMm":[400,400,4100,2500]},
+    {"id":"dock","kind":"dock","boundsMm":[10800,750,2400,2100]},
+    {"id":"charging-pad","kind":"charging","boundsMm":[11500,1200,1000,1150]}
+  ],
+  "actors": [
+    {"id":"worker-a","kind":"worker","startMm":[4600,7600],"endMm":[6400,7600],"sizeMm":[500,500],"legTicks":60},
+    {"id":"staging-cart","kind":"cart","startMm":[1500,1000],"endMm":[3500,1000],"sizeMm":[800,600],"legTicks":100}
+  ],
+  "items": [
+    {"epc":"A00000000000000000000001","rack":"west-rack","shelf":1,"offsetMm":[200,300]},
+    {"epc":"A00000000000000000000002","rack":"west-rack","shelf":2,"offsetMm":[500,1600]},
+    {"epc":"A00000000000000000000003","rack":"east-rack","shelf":3,"offsetMm":[650,2100]}
+  ]
+}

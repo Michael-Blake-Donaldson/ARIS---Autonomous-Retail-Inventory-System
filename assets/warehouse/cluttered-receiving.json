@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "scenarioId": 202,
+  "seed": 781,
+  "sizeMm": [21000,14500],
+  "robot": {"spawnMm":[9300,4500],"radiusMm":420},
+  "fixtures": [
+    {"id":"receiving-divider-west","kind":"wall","boundsMm":[0,6000,7900,220]},
+    {"id":"receiving-divider-east","kind":"wall","boundsMm":[10400,6000,10600,220]},
+    {"id":"inbound-pallet","kind":"obstruction","boundsMm":[1400,3500,2100,1600]},
+    {"id":"hold-pallet","kind":"obstruction","boundsMm":[11000,4400,2200,900]},
+    {"id":"repack-bin","kind":"obstruction","boundsMm":[13500,3100,1800,1700]},
+    {"id":"reserve-west","kind":"rack","boundsMm":[3800,8000,1700,5500],"aisle":"reserve-aisle","shelfHeightsMm":[420,1050,1750]},
+    {"id":"reserve-east","kind":"rack","boundsMm":[15200,8000,1700,5300],"aisle":"reserve-aisle","shelfHeightsMm":[500,1200,2200]}
+  ],
+  "zones": [
+    {"id":"reserve-aisle","kind":"aisle","boundsMm":[5500,7200,9700,6600]},
+    {"id":"receiving-door","kind":"doorway","boundsMm":[7900,6000,2500,220]},
+    {"id":"inbound-staging","kind":"receiving","boundsMm":[850,600,7600,5000]},
+    {"id":"service-dock","kind":"dock","boundsMm":[16300,1200,3500,3500]},
+    {"id":"charging-pad","kind":"charging","boundsMm":[17100,1800,1450,1700]}
+  ],
+  "actors": [
+    {"id":"inbound-u-boat","kind":"u-boat","startMm":[5100,2800],"endMm":[7200,2800],"sizeMm":[1100,600],"legTicks":85},
+    {"id":"temporary-staging","kind":"temporary-obstruction","startMm":[11600,1800],"endMm":[14500,1800],"sizeMm":[900,700],"legTicks":150},
+    {"id":"reserve-worker","kind":"worker","startMm":[9300,9200],"endMm":[13000,9200],"sizeMm":[450,450],"legTicks":90}
+  ],
+  "items": [
+    {"epc":"A0000000000000000000000A","rack":"reserve-west","shelf":1,"offsetMm":[155,1300]},
+    {"epc":"A0000000000000000000000B","rack":"reserve-east","shelf":2,"offsetMm":[275,2650]},
+    {"epc":"A0000000000000000000000C","rack":"reserve-east","shelf":3,"offsetMm":[800,4200]}
+  ]
+}

@@ -18,8 +18,22 @@ target_include_directories(argus_core PUBLIC include)
 target_compile_features(argus_core PUBLIC cxx_std_20)
 argus_project_target(argus_core)
 
-add_library(argus_world STATIC src/world/geometry.cpp)
-target_link_libraries(argus_world PUBLIC argus_core)
+find_package(nlohmann_json CONFIG REQUIRED)
+set(ARGUS_FIXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/warehouse")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${ARGUS_FIXTURE_DIR}/small-backroom.json"
+    "${ARGUS_FIXTURE_DIR}/cluttered-receiving.json"
+    "${ARGUS_FIXTURE_DIR}/broad-stockroom.json"
+)
+file(READ "${ARGUS_FIXTURE_DIR}/small-backroom.json" ARGUS_SMALL_BACKROOM)
+file(READ "${ARGUS_FIXTURE_DIR}/cluttered-receiving.json" ARGUS_CLUTTERED_RECEIVING)
+file(READ "${ARGUS_FIXTURE_DIR}/broad-stockroom.json" ARGUS_BROAD_STOCKROOM)
+configure_file(cmake/warehouse_fixtures.hpp.in generated/warehouse_fixtures.hpp @ONLY)
+add_library(argus_world STATIC
+    src/world/fixtures.cpp src/world/geometry.cpp src/world/motion.cpp
+    src/world/scenario.cpp src/world/warehouse.cpp)
+target_include_directories(argus_world PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(argus_world PUBLIC argus_core PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_world)
 
 find_package(spdlog CONFIG REQUIRED)
@@ -46,7 +60,7 @@ if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
     add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
-        tests/unit/geometry_test.cpp)
+        tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp)
     target_link_libraries(argus_unit_tests PRIVATE argus_app argus_world GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)

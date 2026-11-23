@@ -1,0 +1,14 @@
+#pragma once
+
+#include <string_view>
+
+namespace argus::simulation::detail {
+
+inline constexpr std::string_view small_backroom_json = R"argus(
+@ARGUS_SMALL_BACKROOM@)argus";
+inline constexpr std::string_view cluttered_receiving_json = R"argus(
+@ARGUS_CLUTTERED_RECEIVING@)argus";
+inline constexpr std::string_view broad_stockroom_json = R"argus(
+@ARGUS_BROAD_STOCKROOM@)argus";
+
+} // namespace argus::simulation::detail
