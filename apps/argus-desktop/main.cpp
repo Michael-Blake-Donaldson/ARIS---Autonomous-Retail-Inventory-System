@@ -1,11 +1,13 @@
 #include "application.hpp"
+#include "warehouse_io.hpp"
+#include "warehouse_view.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-#include <windows.h>
-
-#include <GL/gl.h>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <type_traits>
 
@@ -22,19 +24,31 @@ class VideoSession {
     VideoSession &operator=(const VideoSession &) = delete;
 };
 
-bool present(SDL_Window *window) {
+bool present(SDL_Window *window, const argus::world::Snapshot &view) {
     int width{};
     int height{};
     if (!SDL_GetWindowSizeInPixels(window, &width, &height)) {
         return false;
     }
-    glViewport(0, 0, width, height);
-    glClearColor(0.08F, 0.12F, 0.17F, 1.0F);
-    glClear(GL_COLOR_BUFFER_BIT);
+    if (width <= 0 || height <= 0) {
+        return true;
+    }
+    argus::desktop::draw_warehouse(view, width, height);
     return SDL_GL_SwapWindow(window);
 }
 
-argus::app::Status run_desktop(const argus::app::Options &) {
+argus::app::Status run_desktop(const argus::app::Options &options) {
+    using argus::app::WarehouseSource;
+    using argus::simulation::ScenarioError;
+    using argus::simulation::Warehouse;
+    if (options.warehouse_source == WarehouseSource::export_fixture) {
+        return argus::app::export_warehouse(options.fixture);
+    }
+    const auto loaded = argus::app::open_warehouse(options);
+    if (const auto *error = std::get_if<ScenarioError>(&loaded)) {
+        return *error;
+    }
+    const auto &warehouse = std::get<Warehouse>(loaded);
     const VideoSession video;
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return Error::video_initialization;
@@ -43,7 +57,7 @@ argus::app::Status run_desktop(const argus::app::Options &) {
     constexpr int initial_width = 960;
     constexpr int initial_height = 600;
     const std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{
-        SDL_CreateWindow("ARGUS", initial_width, initial_height,
+        SDL_CreateWindow("ARGUS Warehouse Preview", initial_width, initial_height,
                          SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE),
         SDL_DestroyWindow};
     if (!window) {
@@ -55,23 +69,38 @@ argus::app::Status run_desktop(const argus::app::Options &) {
     if (!context) {
         return Error::graphics_context;
     }
-    if (!present(window.get())) {
+    auto previous_tick = options.tick;
+    if (!present(window.get(), warehouse.snapshot(previous_tick))) {
         return Error::graphics_present;
     }
 
-    SDL_Event event{};
-    while (SDL_WaitEvent(&event)) {
-        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
-            (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) {
+    constexpr std::uint64_t tick_ms = 50;
+    const auto started = SDL_GetTicks();
+    for (;;) {
+        SDL_Event event{};
+        SDL_ClearError();
+        const bool got_event = SDL_WaitEventTimeout(&event, static_cast<int>(tick_ms));
+        if (!got_event && *SDL_GetError() != '\0') {
+            return Error::window_events;
+        }
+        if (got_event &&
+            (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
+             (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE))) {
             return std::monostate{};
         }
-        if ((event.type == SDL_EVENT_WINDOW_EXPOSED ||
-             event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) &&
-            !present(window.get())) {
-            return Error::graphics_present;
+        const auto elapsed_ticks = (SDL_GetTicks() - started) / tick_ms;
+        const auto tick =
+            options.tick +
+            std::min(elapsed_ticks, std::numeric_limits<std::uint64_t>::max() - options.tick);
+        const bool refresh = got_event && (event.type == SDL_EVENT_WINDOW_EXPOSED ||
+                                           event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED);
+        if (tick != previous_tick || refresh) {
+            if (!present(window.get(), warehouse.snapshot(tick))) {
+                return Error::graphics_present;
+            }
+            previous_tick = tick;
         }
     }
-    return Error::window_events;
 }
 
 } // namespace

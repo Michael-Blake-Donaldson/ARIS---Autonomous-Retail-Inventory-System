@@ -15,7 +15,7 @@ function(check_cli expected_status expected_stdout expected_stderr)
 endfunction()
 
 check_cli(0 "ARGUS ${ARGUS_VERSION}" "" --version)
-check_cli(0 "Usage: ${ARGUS_APP} [--help | --version | --seed UINT32]" "" --help)
+check_cli(0 "Usage: ${ARGUS_APP} [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64] | --scenario-stdin [--tick UINT64] | --export-warehouse NAME]" "" --help)
 check_cli(2 "" "{\"event\":\"configuration_rejected\",\"app\":\"${ARGUS_APP}\",\"code\":\"invalid_seed\"}"
     --seed 4294967296)
 check_cli(2 "" "{\"event\":\"configuration_rejected\",\"app\":\"${ARGUS_APP}\",\"code\":\"invalid_arguments\"}"

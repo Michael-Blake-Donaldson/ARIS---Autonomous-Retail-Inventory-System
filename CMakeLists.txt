@@ -38,9 +38,9 @@ argus_project_target(argus_world)
 
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
-add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp)
+add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp src/app/warehouse_io.cpp)
 target_include_directories(argus_app PUBLIC src/app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(argus_app PUBLIC argus_core PRIVATE spdlog::spdlog)
+target_link_libraries(argus_app PUBLIC argus_core argus_world PRIVATE spdlog::spdlog)
 argus_project_target(argus_app)
 
 add_executable(argus-headless apps/argus-headless/main.cpp)
@@ -50,7 +50,7 @@ argus_project_target(argus-headless)
 if(WIN32)
     find_package(SDL3 CONFIG REQUIRED)
     find_package(OpenGL REQUIRED)
-    add_executable(argus-desktop apps/argus-desktop/main.cpp)
+    add_executable(argus-desktop apps/argus-desktop/main.cpp apps/argus-desktop/warehouse_view.cpp)
     target_compile_definitions(argus-desktop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(argus-desktop PRIVATE argus_app SDL3::SDL3 OpenGL::GL)
     argus_project_target(argus-desktop)
@@ -74,6 +74,12 @@ if(BUILD_TESTING)
         )
     endfunction()
     argus_cli_smoke(argus-headless)
+    add_test(NAME argus-headless.warehouse COMMAND "${CMAKE_COMMAND}"
+        "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
+        "-DARGUS_FIXTURE_DIR=${ARGUS_FIXTURE_DIR}"
+        "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/warehouse-cli-tests"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/warehouse_cli.cmake"
+    )
     if(TARGET argus-desktop)
         argus_cli_smoke(argus-desktop)
     endif()

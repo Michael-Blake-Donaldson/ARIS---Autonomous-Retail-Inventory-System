@@ -25,6 +25,8 @@ std::string_view error_code(Error error) noexcept {
         return "invalid_arguments";
     case Error::invalid_seed:
         return "invalid_seed";
+    case Error::invalid_tick:
+        return "invalid_tick";
     case Error::video_initialization:
         return "video_initialization";
     case Error::window_creation:
@@ -39,6 +41,10 @@ std::string_view error_code(Error error) noexcept {
         return "output_failure";
     }
     return "unknown_error";
+}
+
+std::string_view error_code(simulation::ScenarioError error) noexcept {
+    return simulation::scenario_error_code(error);
 }
 
 } // namespace
@@ -58,18 +64,26 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
         const auto &options = std::get<Options>(parsed);
         switch (options.action) {
         case Action::help:
-            std::cout << "Usage: " << name << " [--help | --version | --seed UINT32]\n";
+            std::cout << "Usage: " << name
+                      << " [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64]"
+                         " | --scenario-stdin [--tick UINT64] | --export-warehouse NAME]\n";
             break;
         case Action::version:
             std::cout << "ARGUS " << version << '\n';
             break;
         case Action::run: {
-            log.info(R"({{"event":"application_starting","app":"{}","version":"{}","seed":{}}})",
-                     name, version, options.seed);
+            if (options.warehouse_source == WarehouseSource::none) {
+                log.info(
+                    R"({{"event":"application_starting","app":"{}","version":"{}","seed":{}}})",
+                    name, version, options.seed);
+            } else {
+                log.info(R"({{"event":"application_starting","app":"{}","version":"{}"}})", name,
+                         version);
+            }
             const auto status = run(options);
-            if (const auto *error = std::get_if<Error>(&status)) {
-                log.error(R"({{"event":"application_failed","app":"{}","code":"{}"}})", name,
-                          error_code(*error));
+            if (const auto *error = std::get_if<Failure>(&status)) {
+                const auto code = std::visit([](auto value) { return error_code(value); }, *error);
+                log.error(R"({{"event":"application_failed","app":"{}","code":"{}"}})", name, code);
                 return EXIT_FAILURE;
             }
             return EXIT_SUCCESS;

@@ -1,0 +1,52 @@
+file(MAKE_DIRECTORY "${ARGUS_TEST_DIR}")
+
+function(require_success status diagnostics)
+    if(NOT status STREQUAL "0")
+        message(FATAL_ERROR "Warehouse command exited '${status}': ${diagnostics}")
+    endif()
+endfunction()
+
+foreach(fixture IN ITEMS small-backroom cluttered-receiving broad-stockroom)
+    set(source "${ARGUS_FIXTURE_DIR}/${fixture}.json")
+    set(export "${ARGUS_TEST_DIR}/${fixture}.json")
+    execute_process(COMMAND "${ARGUS_EXECUTABLE}" --export-warehouse "${fixture}"
+        OUTPUT_FILE "${export}" RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 5)
+    require_success("${status}" "${diagnostics}")
+    file(SHA256 "${source}" source_hash)
+    file(SHA256 "${export}" export_hash)
+    if(NOT source_hash STREQUAL export_hash)
+        message(FATAL_ERROR "Export bytes differ from source for ${fixture}")
+    endif()
+
+    execute_process(COMMAND "${ARGUS_EXECUTABLE}" --warehouse "${fixture}" --tick 40
+        OUTPUT_VARIABLE original RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 5)
+    require_success("${status}" "${diagnostics}")
+    execute_process(COMMAND "${ARGUS_EXECUTABLE}" --scenario-stdin --tick 40 INPUT_FILE "${export}"
+        OUTPUT_VARIABLE imported RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 5)
+    require_success("${status}" "${diagnostics}")
+    if(NOT original STREQUAL imported OR original MATCHES "epc|items|offsetMm")
+        message(FATAL_ERROR "Unexpected import/replay output for ${fixture}: ${original}")
+    endif()
+    string(JSON tick GET "${original}" tick)
+    string(JSON actor_count LENGTH "${original}" actors)
+    if(NOT tick EQUAL 40 OR actor_count LESS 2)
+        message(FATAL_ERROR "Unexpected snapshot for ${fixture}: ${original}")
+    endif()
+    if(fixture STREQUAL "small-backroom")
+        string(JSON actor_x GET "${original}" actors 0 boundsMm 0)
+        if(NOT actor_x EQUAL 4960)
+            message(FATAL_ERROR "Small-backroom replay differs from its reference position")
+        endif()
+    endif()
+endforeach()
+
+file(READ "${ARGUS_FIXTURE_DIR}/small-backroom.json" valid_document)
+string(ASCII 26 control_z)
+set(corrupt_file "${ARGUS_TEST_DIR}/corrupt.json")
+file(WRITE "${corrupt_file}" "${valid_document}${control_z}unexpected suffix")
+execute_process(COMMAND "${ARGUS_EXECUTABLE}" --scenario-stdin INPUT_FILE "${corrupt_file}"
+    OUTPUT_VARIABLE output RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 5)
+if(NOT status STREQUAL "1" OR NOT output STREQUAL "" OR
+   NOT diagnostics MATCHES "malformed_scenario_json" OR diagnostics MATCHES "unexpected suffix")
+    message(FATAL_ERROR "Corrupt stdin was not safely rejected: ${status}, ${output}, ${diagnostics}")
+endif()

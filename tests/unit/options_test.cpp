@@ -51,4 +51,39 @@ TEST(Options, RejectsMissingUnknownAndExtraArguments) {
               Error::invalid_arguments);
 }
 
+TEST(Options, AcceptsWarehouseFixtureStdinAndExport) {
+    using argus::app::WarehouseSource;
+    const auto fixture = std::get<Options>(
+        parse_options(std::array{"--warehouse", "small-backroom", "--tick", "5"}));
+    EXPECT_EQ(fixture.fixture, "small-backroom");
+    EXPECT_EQ(fixture.tick, 5U);
+    EXPECT_EQ(fixture.warehouse_source, WarehouseSource::fixture);
+    const auto input = std::get<Options>(
+        parse_options(std::array{"--scenario-stdin", "--tick", "18446744073709551615"}));
+    EXPECT_EQ(input.tick, std::numeric_limits<std::uint64_t>::max());
+    EXPECT_EQ(input.warehouse_source, WarehouseSource::standard_input);
+    const auto output =
+        std::get<Options>(parse_options(std::array{"--export-warehouse", "broad-stockroom"}));
+    EXPECT_EQ(output.fixture, "broad-stockroom");
+    EXPECT_EQ(output.warehouse_source, WarehouseSource::export_fixture);
+}
+
+TEST(Options, RejectsInvalidWarehouseFlagsAndTicks) {
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--warehouse", "../small-backroom"})),
+              Error::invalid_arguments);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--warehouse", "C:fixture"})),
+              Error::invalid_arguments);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--warehouse"})), Error::invalid_arguments);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--scenario-stdin", "--tick", "-1"})),
+              Error::invalid_tick);
+    EXPECT_EQ(std::get<Error>(
+                  parse_options(std::array{"--scenario-stdin", "--tick", "18446744073709551616"})),
+              Error::invalid_tick);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--scenario-stdin", "--tick"})),
+              Error::invalid_arguments);
+    EXPECT_EQ(std::get<Error>(
+                  parse_options(std::array{"--export-warehouse", "small-backroom", "--tick", "2"})),
+              Error::invalid_arguments);
+}
+
 } // namespace

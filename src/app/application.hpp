@@ -2,11 +2,14 @@
 
 #include "options.hpp"
 
+#include "argus/simulation/warehouse.hpp"
+
 #include <string_view>
 
 namespace argus::app {
 
-using Status = Result<std::monostate, Error>;
+using Failure = std::variant<Error, simulation::ScenarioError>;
+using Status = Result<std::monostate, Failure>;
 using Run = Status (*)(const Options &);
 
 int run_application(int argc, char **argv, std::string_view name, Run run) noexcept;
