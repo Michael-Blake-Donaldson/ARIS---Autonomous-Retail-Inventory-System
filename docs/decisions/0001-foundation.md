@@ -20,7 +20,7 @@ argus_unit_tests -> argus_app -> argus_core
 
 Only the Windows shell links SDL3 and the system OpenGL library. The startup library owns command-line parsing and fixed-field logging via spdlog. Tests link GoogleTest. OpenGL uses the Windows SDK. Defer additional libraries until a phase requires them.
 
-Use `Result<Value, Error>` with a module-specific error enum for anticipated failures. Strong IDs and quantities represent semantic distinctions, with domain code responsible for validating ranges. Each run owns its own `Random` instance. Raw `std::mt19937` output provides a standardized reference sequence for a 32-bit seed. Sampling distributions will need their own determinism contract.
+Use `Result<Value, Error>` with a module-specific error enum for anticipated failures. Strong IDs and quantities represent semantic distinctions, with domain code responsible for validating ranges. Each run owns its own `Random` instance. Raw `std::mt19937` output provides a standardized reference sequence for a 32-bit seed. Its use is limited to simulation. Sampling distributions will need their own determinism contract.
 
 ## Alternatives
 
@@ -28,4 +28,4 @@ A platform-specific project file would put Linux verification on a second build 
 
 ## Consequences
 
-CI pins third-party actions to reviewed SHAs and runs with read-only repository permissions. vcpkg's binary cache is keyed by platform, preset and manifest, with vcpkg validating package ABI compatibility. Only successful default-branch builds can publish those cache entries. Baseline updates require rebuilding all presets and reviewing dependency and license changes. Host compiler, SDK, system libraries and runner images may still differ, so this is a repeatable dependency and build process rather than a bit-identical binary guarantee.
+CI pins third-party actions to reviewed SHAs and runs with read-only repository permissions. vcpkg's binary cache is keyed by platform, preset and manifest, with vcpkg validating package ABI compatibility. Only successful default-branch builds can publish those cache entries. Baseline updates require rebuilding all presets and reviewing dependency and license changes. Dependency resolution is repeatable. The compiler, SDK, system libraries and runner image remain host inputs.
