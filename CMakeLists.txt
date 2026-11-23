@@ -18,11 +18,44 @@ target_include_directories(argus_core PUBLIC include)
 target_compile_features(argus_core PUBLIC cxx_std_20)
 argus_project_target(argus_core)
 
+find_package(spdlog CONFIG REQUIRED)
+configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
+add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp)
+target_include_directories(argus_app PUBLIC src/app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(argus_app PUBLIC argus_core PRIVATE spdlog::spdlog)
+argus_project_target(argus_app)
+
+add_executable(argus-headless apps/argus-headless/main.cpp)
+target_link_libraries(argus-headless PRIVATE argus_app)
+argus_project_target(argus-headless)
+
+if(WIN32)
+    find_package(SDL3 CONFIG REQUIRED)
+    find_package(OpenGL REQUIRED)
+    add_executable(argus-desktop apps/argus-desktop/main.cpp)
+    target_compile_definitions(argus-desktop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(argus-desktop PRIVATE argus_app SDL3::SDL3 OpenGL::GL)
+    argus_project_target(argus-desktop)
+endif()
+
 if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
-    add_executable(argus_unit_tests tests/unit/core_test.cpp)
-    target_link_libraries(argus_unit_tests PRIVATE argus_core GTest::gtest_main)
+    add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_app GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
+
+    function(argus_cli_smoke target)
+        add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"
+            "-DARGUS_EXECUTABLE=$<TARGET_FILE:${target}>"
+            "-DARGUS_APP=${target}"
+            "-DARGUS_VERSION=${PROJECT_VERSION}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/cli_smoke.cmake"
+        )
+    endfunction()
+    argus_cli_smoke(argus-headless)
+    if(TARGET argus-desktop)
+        argus_cli_smoke(argus-desktop)
+    endif()
 endif()
