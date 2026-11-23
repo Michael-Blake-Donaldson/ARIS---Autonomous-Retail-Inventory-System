@@ -18,6 +18,10 @@ target_include_directories(argus_core PUBLIC include)
 target_compile_features(argus_core PUBLIC cxx_std_20)
 argus_project_target(argus_core)
 
+add_library(argus_world STATIC src/world/geometry.cpp)
+target_link_libraries(argus_world PUBLIC argus_core)
+argus_project_target(argus_world)
+
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp)
@@ -41,8 +45,9 @@ endif()
 if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
-    add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp)
-    target_link_libraries(argus_unit_tests PRIVATE argus_app GTest::gtest_main)
+    add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
+        tests/unit/geometry_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_world GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
