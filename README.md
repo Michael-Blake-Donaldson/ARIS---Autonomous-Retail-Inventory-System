@@ -1,6 +1,6 @@
 # ARGUS
 
-ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. Phase 1 provides a Windows SDL3/OpenGL shell and a deterministic command-line executable.
+ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. The Windows desktop previews warehouse layouts and moving obstacles. The headless executable can validate, export and replay the same scenarios.
 
 ## Build and test
 
@@ -42,12 +42,16 @@ cmake --workflow --preset linux-ci
 ## Run
 
 ```bat
-out\build\windows-debug\argus-headless.exe --seed 5489
-out\build\windows-debug\argus-desktop.exe
+out\build\windows-debug\argus-desktop.exe --warehouse cluttered-receiving
+out\build\windows-debug\argus-headless.exe --warehouse broad-stockroom --tick 40
+out\build\windows-debug\argus-headless.exe --export-warehouse small-backroom > scenario.json
+out\build\windows-debug\argus-headless.exe --scenario-stdin --tick 40 < scenario.json
 ```
 
-The headless executable writes a JSON record to stdout. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables write structured startup and error events to stderr. Use `--help` or `--version` as standalone options. The optional `--seed` accepts one to ten unsigned decimal digits in the inclusive range 0–4294967295 and defaults to 5489. The exit codes are 0 on success, 2 for invalid options, and 1 for runtime failure.
+These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, and `broad-stockroom`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
 
-The desktop window requires an interactive Windows session with OpenGL support. Close it using Escape or the window close button. The example scenario envelope in [assets/warehouse](assets/warehouse) defines identity and seed metadata. Scenario ingestion and warehouse geometry begin in Phase 2.
+The desktop window requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances actor motion at 50 ms per tick. Close it with Escape or the window close button. The preview shows the floor plan, moving obstacles and the stationary robot spawn marker.
 
-See the [requirements](docs/requirements.md), [foundation ADR](docs/decisions/0001-foundation.md), and [Phase 1 evidence](docs/testing/phase-01.md).
+The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
+
+See the [warehouse format and interfaces](docs/warehouse.md), [Phase 2 evidence](docs/testing/phase-02.md), and [Phase 1 evidence](docs/testing/phase-01.md).
