@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.25)
+project(ARGUS VERSION 0.1.0 LANGUAGES CXX)
+
+include(CTest)
+option(ARGUS_ENABLE_SANITIZERS "Enable ASan and UBSan on project targets" OFF)
+option(ARGUS_ENABLE_CLANG_TIDY "Run clang-tidy during compilation" OFF)
+if(ARGUS_ENABLE_SANITIZERS AND
+   (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|GNU)$"))
+    message(FATAL_ERROR "ARGUS sanitizers require Clang or GCC on Linux")
+endif()
+if(ARGUS_ENABLE_CLANG_TIDY)
+    find_program(ARGUS_CLANG_TIDY NAMES clang-tidy-18 clang-tidy REQUIRED)
+endif()
+include(cmake/ProjectChecks.cmake)
+
+add_library(argus_core STATIC src/core/random.cpp)
+target_include_directories(argus_core PUBLIC include)
+target_compile_features(argus_core PUBLIC cxx_std_20)
+argus_project_target(argus_core)
+
+if(BUILD_TESTING)
+    find_package(GTest CONFIG REQUIRED)
+    include(GoogleTest)
+    add_executable(argus_unit_tests tests/unit/core_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_core GTest::gtest_main)
+    argus_project_target(argus_unit_tests)
+    gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
+endif()
