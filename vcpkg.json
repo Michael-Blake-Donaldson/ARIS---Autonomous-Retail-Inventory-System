@@ -6,7 +6,10 @@
   "features": {
     "desktop": {
       "description": "SDL3 support for the native Windows shell",
-      "dependencies": [{ "name": "sdl3", "platform": "windows" }]
+      "dependencies": [
+        { "name": "sdl3", "platform": "windows" },
+        { "name": "imgui", "features": ["sdl3-binding", "opengl2-binding"], "platform": "windows" }
+      ]
     }
   }
 }

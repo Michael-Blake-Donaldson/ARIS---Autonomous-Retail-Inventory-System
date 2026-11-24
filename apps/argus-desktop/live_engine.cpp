@@ -45,8 +45,8 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
                       std::get<simulation::RobotSimulation>(std::move(robot)),
                       std::get<simulation::SensorRig>(std::move(sensors)),
                       std::get<mapping::Mapper>(std::move(mapper)),
-                      {declared.floor, declared.robot_radius_mm, std::move(declared.solids),
-                       std::move(declared.zones)}};
+                      {declared.scenario_id, declared.floor, declared.robot_radius_mm,
+                       std::move(declared.solids), std::move(declared.zones)}};
 }
 
 void LiveEngine::restart() {
@@ -140,10 +140,10 @@ LiveFrame LiveEngine::frame() const noexcept {
             trace_,
             reads_,
             epcs_.size(),
-            navigator_ ? navigation::label(progress.reason == navigation::Reason::none
-                                               ? navigation::Reason::none
-                                               : progress.reason)
-                       : "manual",
+            navigator_
+                ? (progress.reason == navigation::Reason::none ? navigation::label(progress.state)
+                                                               : navigation::label(progress.reason))
+                : "manual",
             navigator_ && progress.state != navigation::State::finished};
 }
 

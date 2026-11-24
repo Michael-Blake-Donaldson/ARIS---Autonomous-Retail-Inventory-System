@@ -65,6 +65,7 @@ struct Camera {
 };
 
 struct Layout {
+    ScenarioId scenario;
     world::RectMm floor;
     std::int32_t radius_mm;
     std::vector<world::SolidView> solids;

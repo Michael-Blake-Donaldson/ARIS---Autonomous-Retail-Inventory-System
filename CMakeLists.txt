@@ -4,6 +4,7 @@ project(ARGUS VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
 option(ARGUS_ENABLE_SANITIZERS "Enable ASan and UBSan on project targets" OFF)
 option(ARGUS_ENABLE_CLANG_TIDY "Run clang-tidy during compilation" OFF)
+option(ARGUS_ENABLE_NATIVE_UI_TESTS "Run Windows operations center tests in an interactive session" OFF)
 if(ARGUS_ENABLE_SANITIZERS AND
    (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|GNU)$"))
     message(FATAL_ERROR "ARGUS sanitizers require Clang or GCC on Linux")
@@ -74,6 +75,11 @@ add_library(argus_mission STATIC src/mission/model.cpp src/mission/store.cpp)
 target_link_libraries(argus_mission PUBLIC argus_inventory PRIVATE unofficial::sqlite3::sqlite3)
 argus_project_target(argus_mission)
 
+add_library(argus_operations_model STATIC apps/argus-desktop/operations_model.cpp)
+target_include_directories(argus_operations_model PUBLIC apps/argus-desktop)
+target_link_libraries(argus_operations_model PUBLIC argus_core)
+argus_project_target(argus_operations_model)
+
 add_library(argus_mission_sim STATIC src/mission/simulation.cpp)
 target_link_libraries(argus_mission_sim PUBLIC argus_mission
     PRIVATE argus_audit_sim argus_sensors)
@@ -103,9 +109,19 @@ argus_project_target(argus-headless)
 if(WIN32)
     find_package(SDL3 CONFIG REQUIRED)
     find_package(OpenGL REQUIRED)
-    add_executable(argus-desktop apps/argus-desktop/main.cpp apps/argus-desktop/warehouse_view.cpp)
+    find_package(imgui CONFIG REQUIRED)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/fictional-catalog.csv")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/fictional-catalog.csv"
+        ARGUS_OPERATIONS_CATALOG)
+    configure_file(cmake/operations_fixture.hpp.in generated/operations_fixture.hpp @ONLY)
+    add_executable(argus-desktop apps/argus-desktop/main.cpp apps/argus-desktop/live_engine.cpp
+        apps/argus-desktop/panels.cpp
+        apps/argus-desktop/scene.cpp apps/argus-desktop/workbench.cpp)
     target_compile_definitions(argus-desktop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(argus-desktop PRIVATE argus_app SDL3::SDL3 OpenGL::GL)
+    target_include_directories(argus-desktop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(argus-desktop PRIVATE argus_app argus_operations_model argus_navigation argus_mission_sim
+        argus_audit_sim SDL3::SDL3 OpenGL::GL imgui::imgui)
     argus_project_target(argus-desktop)
 endif()
 
@@ -116,9 +132,9 @@ if(BUILD_TESTING)
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
         tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp
         tests/unit/navigation_test.cpp tests/unit/inventory_test.cpp tests/unit/audit_test.cpp
-        tests/unit/mission_test.cpp)
+        tests/unit/mission_test.cpp tests/unit/operations_test.cpp)
     target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping
-        argus_navigation argus_inventory argus_audit argus_mission
+        argus_navigation argus_inventory argus_audit argus_mission argus_operations_model
         unofficial::sqlite3::sqlite3 GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
@@ -184,5 +200,9 @@ if(BUILD_TESTING)
     )
     if(TARGET argus-desktop)
         argus_cli_smoke(argus-desktop)
+        if(ARGUS_ENABLE_NATIVE_UI_TESTS)
+            add_test(NAME argus-desktop.operations COMMAND argus-desktop --ui-smoke)
+            set_tests_properties(argus-desktop.operations PROPERTIES TIMEOUT 70 RUN_SERIAL TRUE)
+        endif()
     endif()
 endif()
