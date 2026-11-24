@@ -1,6 +1,6 @@
 # ARGUS
 
-ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. The Windows desktop previews warehouse layouts and moving obstacles. The headless executable can validate, export and replay the same scenarios.
+ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. The Windows preview lets you drive a simulated robot through three warehouse layouts. The headless executable validates, exports and replays the same scenarios.
 
 ## Build and test
 
@@ -44,14 +44,17 @@ cmake --workflow --preset linux-ci
 ```bat
 out\build\windows-debug\argus-desktop.exe --warehouse cluttered-receiving
 out\build\windows-debug\argus-headless.exe --warehouse broad-stockroom --tick 40
+out\build\windows-debug\argus-headless.exe --warehouse small-backroom --drive-steps 220
 out\build\windows-debug\argus-headless.exe --export-warehouse small-backroom > scenario.json
 out\build\windows-debug\argus-headless.exe --scenario-stdin --tick 40 < scenario.json
 ```
 
 These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, and `broad-stockroom`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
 
-The desktop window requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances actor motion at 50 ms per tick. Close it with Escape or the window close button. The preview shows the floor plan, moving obstacles and the stationary robot spawn marker.
+The desktop requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances the simulator every 50 ms. Hold Space and use the arrow keys to drive. Release Space to brake, press X for a latched emergency stop, and press R with Space released to clear it. Home restarts the run after the latch is clear and Space is released. F3 toggles the labeled developer truth overlay. Escape closes the preview.
+
+Use `--drive-steps N` with a warehouse to run 1–2,000 straight-drive steps. Headless output includes odometry, commanded and measured velocities, battery and collision status. In the desktop, the same flag runs the probe before manual control begins.
 
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
-See the [warehouse format and interfaces](docs/warehouse.md), [Phase 2 evidence](docs/testing/phase-02.md), and [Phase 1 evidence](docs/testing/phase-01.md).
+See the [robot controls and model](docs/robot.md), [Phase 3 evidence](docs/testing/phase-03.md), [warehouse format](docs/warehouse.md), [Phase 2 evidence](docs/testing/phase-02.md), and [Phase 1 evidence](docs/testing/phase-01.md).
