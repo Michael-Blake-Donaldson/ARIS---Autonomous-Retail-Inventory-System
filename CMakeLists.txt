@@ -70,6 +70,10 @@ add_library(argus_audit_sim STATIC src/audit/demo.cpp)
 target_link_libraries(argus_audit_sim PUBLIC argus_audit PRIVATE argus_sensors)
 argus_project_target(argus_audit_sim)
 
+add_library(argus_mission STATIC src/mission/model.cpp)
+target_link_libraries(argus_mission PUBLIC argus_inventory)
+argus_project_target(argus_mission)
+
 add_executable(argus-inventory apps/argus-inventory/main.cpp)
 target_link_libraries(argus-inventory PRIVATE argus_audit_sim nlohmann_json::nlohmann_json)
 argus_project_target(argus-inventory)
