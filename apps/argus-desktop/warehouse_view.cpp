@@ -56,13 +56,17 @@ Color actor_color(ActorKind kind) noexcept {
     return {246, 221, 113};
 }
 
-void draw_rect(RectMm rect, Color color, GLenum style = GL_QUADS) {
-    glColor3ubv(color.data());
-    glBegin(style);
+void rect_vertices(RectMm rect) {
     glVertex2i(rect.min.x, rect.min.y);
     glVertex2i(rect.max.x, rect.min.y);
     glVertex2i(rect.max.x, rect.max.y);
     glVertex2i(rect.min.x, rect.max.y);
+}
+
+void draw_rect(RectMm rect, Color color, GLenum style = GL_QUADS) {
+    glColor3ubv(color.data());
+    glBegin(style);
+    rect_vertices(rect);
     glEnd();
 }
 
@@ -113,14 +117,10 @@ void draw_lidar(const sensors::LidarScan &scan) {
     glDisable(GL_BLEND);
 }
 
-} // namespace
-
-void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
-                    std::optional<robot::Pose> truth_overlay, const sensors::LidarScan *lidar,
-                    int width, int height) {
+void prepare_projection(double width_mm, double height_mm, int width, int height) {
     const auto aspect = static_cast<double>(width) / static_cast<double>(height);
-    const auto half_width = static_cast<double>(view.floor.max.x) / 2.0;
-    const auto half_height = static_cast<double>(view.floor.max.y) / 2.0;
+    const auto half_width = width_mm / 2.0;
+    const auto half_height = height_mm / 2.0;
     constexpr double margin = 1.10;
     const auto projected_width = std::max(half_width, half_height * aspect) * margin;
     const auto projected_height = projected_width / aspect;
@@ -134,6 +134,14 @@ void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
             half_height - projected_height, half_height + projected_height, -1.0, 1.0);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
+}
+
+} // namespace
+
+void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
+                    std::optional<robot::Pose> truth_overlay, const sensors::LidarScan *lidar,
+                    int width, int height) {
+    prepare_projection(view.floor.max.x, view.floor.max.y, width, height);
 
     draw_rect(view.floor, {28, 46, 61});
     for (const auto &zone : view.zones) {
@@ -153,6 +161,42 @@ void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
         draw_robot(*truth_overlay, view.robot_radius_mm, {110, 213, 255}, true);
     }
     draw_rect(view.floor, {103, 130, 148}, GL_LINE_LOOP);
+}
+
+void draw_occupancy(const mapping::Mapper &mapper, int width, int height) {
+    const auto &grid = mapper.grid();
+    const auto spec = grid.spec();
+    prepare_projection(spec.width_mm, spec.height_mm, width, height);
+    const RectMm bounds{
+        {0, 0},
+        {static_cast<std::int32_t>(spec.width_mm), static_cast<std::int32_t>(spec.height_mm)}};
+    draw_rect(bounds, {31, 42, 57});
+    glBegin(GL_QUADS);
+    for (std::uint32_t y = 0; y < grid.rows(); ++y) {
+        for (std::uint32_t x = 0; x < grid.columns(); ++x) {
+            const auto occupancy = grid.occupancy({x, y});
+            if (occupancy == mapping::Occupancy::unknown) {
+                continue;
+            }
+            if (occupancy == mapping::Occupancy::free) {
+                glColor3ub(72, 129, 133);
+            } else {
+                glColor3ub(246, 188, 105);
+            }
+            const auto left = x * spec.cell_mm;
+            const auto bottom = y * spec.cell_mm;
+            rect_vertices(
+                {{static_cast<std::int32_t>(left), static_cast<std::int32_t>(bottom)},
+                 {static_cast<std::int32_t>(std::min(left + spec.cell_mm, spec.width_mm)),
+                  static_cast<std::int32_t>(std::min(bottom + spec.cell_mm, spec.height_mm))}});
+        }
+    }
+    glEnd();
+    if (const auto &estimate = mapper.estimate()) {
+        const Color marker = estimate->reliable ? Color{155, 242, 200} : Color{223, 120, 111};
+        draw_robot(estimate->pose, 240, marker, false);
+    }
+    draw_rect(bounds, {103, 130, 148}, GL_LINE_LOOP);
 }
 
 } // namespace argus::desktop

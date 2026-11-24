@@ -51,9 +51,10 @@ argus_project_target(argus_mapping)
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC
-    src/app/application.cpp src/app/options.cpp src/app/sensor_output.cpp src/app/warehouse_io.cpp)
+    src/app/application.cpp src/app/map_run.cpp src/app/options.cpp src/app/sensor_output.cpp
+    src/app/warehouse_io.cpp)
 target_include_directories(argus_app PUBLIC src/app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(argus_app PUBLIC argus_sensors PRIVATE spdlog::spdlog)
+target_link_libraries(argus_app PUBLIC argus_sensors argus_mapping PRIVATE spdlog::spdlog)
 argus_project_target(argus_app)
 
 add_executable(argus-headless apps/argus-headless/main.cpp)
@@ -79,6 +80,11 @@ if(BUILD_TESTING)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
+    add_executable(argus-map-evaluation tests/evaluation/map_evaluation.cpp)
+    target_link_libraries(argus-map-evaluation PRIVATE argus_mapping argus_sensors)
+    argus_project_target(argus-map-evaluation)
+    add_test(NAME argus-map-evaluation COMMAND argus-map-evaluation)
+
     function(argus_cli_smoke target)
         add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"
             "-DARGUS_EXECUTABLE=$<TARGET_FILE:${target}>"
@@ -101,6 +107,11 @@ if(BUILD_TESTING)
     add_test(NAME argus-headless.sensors COMMAND "${CMAKE_COMMAND}"
         "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/sensor_cli.cmake"
+    )
+    add_test(NAME argus-headless.mapping COMMAND "${CMAKE_COMMAND}"
+        "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
+        "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/map-cli-tests"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/map_cli.cmake"
     )
     if(TARGET argus-desktop)
         argus_cli_smoke(argus-desktop)

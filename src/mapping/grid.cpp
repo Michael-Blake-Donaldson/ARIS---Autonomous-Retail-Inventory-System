@@ -161,7 +161,7 @@ void Grid::observe_hit(Point origin, Point endpoint) noexcept {
     }
 }
 
-void Grid::clear() noexcept { std::ranges::fill(evidence_, 0); }
+void Grid::clear() noexcept { std::ranges::fill(evidence_, std::int8_t{0}); }
 
 bool Grid::restore(std::span<const std::int8_t> cells) noexcept {
     if (cells.size() != evidence_.size() || !std::ranges::all_of(cells, [](std::int8_t cell) {

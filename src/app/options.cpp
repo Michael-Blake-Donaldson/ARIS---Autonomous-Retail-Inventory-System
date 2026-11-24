@@ -59,11 +59,19 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
     constexpr std::string_view sensor_option = "--sensor-steps";
     constexpr std::uint32_t max_probe_steps = 2000;
     bool has_tick = false;
+    bool has_cell = false;
     while (!args.empty()) {
+        const auto option = bounded_argument(args.front(), sensor_option.size());
+        const bool no_probe =
+            result.drive_steps == 0 && result.sensor_steps == 0 && result.map_mode == MapMode::none;
+        if (option == "--map-stdin" && no_probe && source == WarehouseSource::fixture) {
+            result.map_mode = MapMode::load_map;
+            args = args.subspan(1);
+            continue;
+        }
         if (args.size() < 2) {
             return Error::invalid_arguments;
         }
-        const auto option = bounded_argument(args.front(), sensor_option.size());
         if (option == "--tick" && !has_tick) {
             const auto tick = read_decimal<std::uint64_t>(args[1]);
             if (!tick) {
@@ -71,8 +79,7 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
             }
             result.tick = *tick;
             has_tick = true;
-        } else if ((option == drive_option || option == sensor_option) && result.drive_steps == 0 &&
-                   result.sensor_steps == 0) {
+        } else if ((option == drive_option || option == sensor_option) && no_probe) {
             const auto steps = read_decimal<std::uint32_t>(args[1]);
             if (!steps || *steps == 0 || *steps > max_probe_steps) {
                 return option == drive_option ? Error::invalid_drive_steps
@@ -83,10 +90,28 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
             } else {
                 result.sensor_steps = *steps;
             }
+        } else if ((option == "--map-steps" || option == "--export-map") && no_probe) {
+            const auto steps = read_decimal<std::uint32_t>(args[1]);
+            if (!steps || *steps == 0 || *steps > max_probe_steps) {
+                return Error::invalid_map_steps;
+            }
+            result.map_mode = option == "--map-steps" ? MapMode::summary : MapMode::export_map;
+            result.map_steps = *steps;
+        } else if (option == "--cell-mm" && !has_cell) {
+            const auto size = read_decimal<std::uint32_t>(args[1]);
+            if (!size || *size < 50 || *size > 2000) {
+                return Error::invalid_cell_size;
+            }
+            result.cell_mm = *size;
+            has_cell = true;
         } else {
             return Error::invalid_arguments;
         }
         args = args.subspan(2);
+    }
+    if ((has_cell && result.map_mode == MapMode::none) ||
+        (has_tick && result.map_mode == MapMode::load_map)) {
+        return Error::invalid_arguments;
     }
     return result;
 }
@@ -98,7 +123,7 @@ Result<Options, Error> parse_options(std::span<const char *const> arguments) noe
     if (arguments.empty()) {
         return Options{};
     }
-    if (arguments.size() > 6) {
+    if (arguments.size() > 8) {
         return Error::invalid_arguments;
     }
     const auto option = bounded_argument(arguments.front(), export_option.size());

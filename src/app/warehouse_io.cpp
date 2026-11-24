@@ -15,6 +15,7 @@ namespace {
 
 using simulation::ScenarioError;
 using simulation::Warehouse;
+} // namespace
 
 bool use_binary_mode(std::FILE *stream) noexcept {
 #ifdef _WIN32
@@ -25,8 +26,6 @@ bool use_binary_mode(std::FILE *stream) noexcept {
     return true;
 #endif
 }
-
-} // namespace
 
 Result<Warehouse, ScenarioError> open_warehouse(const Options &options) {
     if (options.warehouse_source == WarehouseSource::standard_input) {

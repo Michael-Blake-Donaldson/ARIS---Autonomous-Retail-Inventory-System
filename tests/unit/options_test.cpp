@@ -114,4 +114,20 @@ TEST(Options, ChoosesOneBoundedSensorOrDriveProbe) {
               Error::invalid_arguments);
 }
 
+TEST(Options, ValidatesMappingStreamsAndResolution) {
+    const auto mapped = std::get<Options>(parse_options(
+        std::array{"--warehouse", "small-backroom", "--map-steps", "55", "--cell-mm", "300"}));
+    EXPECT_EQ(mapped.map_mode, argus::app::MapMode::summary);
+    EXPECT_EQ(mapped.map_steps, 55U);
+    EXPECT_EQ(mapped.cell_mm, 300U);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--scenario-stdin", "--map-stdin"})),
+              Error::invalid_arguments);
+    EXPECT_EQ(std::get<Error>(parse_options(
+                  std::array{"--warehouse", "small-backroom", "--map-stdin", "--cell-mm", "49"})),
+              Error::invalid_cell_size);
+    EXPECT_EQ(std::get<Error>(parse_options(
+                  std::array{"--warehouse", "small-backroom", "--map-stdin", "--tick", "0"})),
+              Error::invalid_arguments);
+}
+
 } // namespace

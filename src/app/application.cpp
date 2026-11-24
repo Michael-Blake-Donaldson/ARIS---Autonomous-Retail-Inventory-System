@@ -1,5 +1,6 @@
 #include "application.hpp"
 
+#include "map_run.hpp"
 #include "version.hpp"
 
 #include <spdlog/sinks/stdout_sinks.h>
@@ -31,6 +32,10 @@ std::string_view error_code(Error error) noexcept {
         return "invalid_drive_steps";
     case Error::invalid_sensor_steps:
         return "invalid_sensor_steps";
+    case Error::invalid_map_steps:
+        return "invalid_map_steps";
+    case Error::invalid_cell_size:
+        return "invalid_cell_size";
     case Error::video_initialization:
         return "video_initialization";
     case Error::window_creation:
@@ -69,6 +74,22 @@ std::string_view error_code(simulation::SensorError error) noexcept {
     return "unknown_sensor_error";
 }
 
+std::string_view error_code(mapping::MapError error) noexcept {
+    switch (error) {
+    case mapping::MapError::invalid_spec:
+        return "invalid_map_spec";
+    case mapping::MapError::malformed:
+        return "malformed_map";
+    case mapping::MapError::incompatible:
+        return "incompatible_map";
+    case mapping::MapError::input_failure:
+        return "map_input_failure";
+    case mapping::MapError::output_failure:
+        return "map_output_failure";
+    }
+    return "unknown_map_error";
+}
+
 } // namespace
 
 int run_application(int argc, char **argv, std::string_view name, Run run) noexcept {
@@ -90,7 +111,9 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
                       << " [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64]"
                          " [--drive-steps N | --sensor-steps N] | --scenario-stdin [--tick UINT64]"
                          " [--drive-steps N | --sensor-steps N]"
-                         " | --export-warehouse NAME]\n";
+                         " | --export-warehouse NAME]\n"
+                         "Mapping: --warehouse NAME [--tick UINT64] [--cell-mm N]"
+                         " (--map-steps N | --export-map N | --map-stdin)\n";
             break;
         case Action::version:
             std::cout << "ARGUS " << version << '\n';
@@ -104,7 +127,7 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
                 log.info(R"({{"event":"application_starting","app":"{}","version":"{}"}})", name,
                          version);
             }
-            const auto status = run(options);
+            const auto status = options.map_mode == MapMode::none ? run(options) : run_map(options);
             if (const auto *error = std::get_if<Failure>(&status)) {
                 const auto code = std::visit([](auto value) { return error_code(value); }, *error);
                 log.error(R"({{"event":"application_failed","app":"{}","code":"{}"}})", name, code);

@@ -81,12 +81,14 @@ Update Mapper::ingest_wheel(const sensors::WheelSample &sample) noexcept {
             Meters{anchor_->reference.x.value() + dx * cos_offset - dy * sin_offset},
             Meters{anchor_->reference.y.value() + dx * sin_offset + dy * cos_offset},
             robot::Radians{std::remainder(header.estimated_pose.heading.value() + offset, turn)}};
-        estimate.distance_error_m +=
-            anchor_->reference_distance_error - anchor_->measured_distance_error;
-        estimate.heading_error_rad +=
-            anchor_->reference_heading_error - anchor_->measured_heading_error;
+        estimate.distance_error_m = anchor_->reference_distance_error +
+                                    (reading.distance_error_m - anchor_->measured_distance_error);
+        estimate.heading_error_rad = anchor_->reference_heading_error +
+                                     (reading.heading_error_rad - anchor_->measured_heading_error);
     }
-    estimate.reliable = sample.powered && grid_.locate(point(estimate.pose)).has_value() &&
+    estimate.reliable = sample.powered && reading.distance_error_m < 1000000.0 &&
+                        reading.heading_error_rad < 1000000.0 &&
+                        grid_.locate(point(estimate.pose)).has_value() &&
                         estimate.distance_error_m < limits_.distance_error_m &&
                         estimate.heading_error_rad < limits_.heading_error_rad;
     estimate_ = estimate;

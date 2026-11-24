@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "map_run.hpp"
 #include "robot_run.hpp"
 #include "warehouse_io.hpp"
 #include "warehouse_view.hpp"
@@ -89,6 +90,12 @@ class Controls {
                 return true;
             }
             break;
+        case SDL_SCANCODE_F5:
+            if (fresh) {
+                map_ = !map_;
+                return true;
+            }
+            break;
         default:
             break;
         }
@@ -119,6 +126,7 @@ class Controls {
 
     [[nodiscard]] bool show_truth() const noexcept { return truth_; }
     [[nodiscard]] bool show_lidar() const noexcept { return lidar_; }
+    [[nodiscard]] bool show_map() const noexcept { return map_; }
     [[nodiscard]] bool restart_requested() noexcept {
         return std::exchange(restart_, false) && !emergency_;
     }
@@ -134,12 +142,15 @@ class Controls {
     bool restart_{};
     bool truth_{};
     bool lidar_{};
+    bool map_{};
 };
 
 void capture_preview_sensors(SensorRig &rig, const RobotSimulation &robot,
-                             std::optional<LidarScan> &latest_lidar) {
+                             std::optional<LidarScan> &latest_lidar,
+                             argus::mapping::Mapper &mapper) {
     rig.capture(robot);
     while (auto sample = rig.pop()) {
+        mapper.ingest(*sample);
         if (auto *scan = std::get_if<LidarScan>(&*sample)) {
             latest_lidar = std::move(*scan);
         }
@@ -149,7 +160,8 @@ void capture_preview_sensors(SensorRig &rig, const RobotSimulation &robot,
     }
 }
 
-std::string window_title(const Telemetry &read, const Controls &controls) {
+std::string window_title(const Telemetry &read, const Controls &controls,
+                         const argus::mapping::Mapper &mapper) {
     std::string title{preview_title};
     title += " | Battery " + std::to_string(read.energy_uj * 100U / read.capacity_uj) + "%";
     if (read.emergency_latched) {
@@ -167,6 +179,13 @@ std::string window_title(const Telemetry &read, const Controls &controls) {
     } else {
         title += " | Space + arrows to drive";
     }
+    if (controls.show_map()) {
+        title += " | Occupancy mapping + odometry";
+        if (mapper.estimate() && !mapper.estimate()->reliable) {
+            title += " | Mapping suspended";
+        }
+        return title;
+    }
     if (controls.show_truth()) {
         title += " | TRUTH overlay";
     }
@@ -176,11 +195,12 @@ std::string window_title(const Telemetry &read, const Controls &controls) {
     return title;
 }
 
-bool present(SDL_Window *window, const argus::world::Snapshot &view, const RobotSimulation &robot,
-             const Controls &controls, const std::optional<LidarScan> &latest_lidar,
+bool present(SDL_Window *window, const argus::simulation::Warehouse &warehouse,
+             const RobotSimulation &robot, const Controls &controls,
+             const std::optional<LidarScan> &latest_lidar, const argus::mapping::Mapper &mapper,
              std::string &last_title) {
     const auto read = robot.telemetry();
-    const auto title = window_title(read, controls);
+    const auto title = window_title(read, controls, mapper);
     if (title != last_title) {
         if (!SDL_SetWindowTitle(window, title.c_str())) {
             return false;
@@ -195,12 +215,17 @@ bool present(SDL_Window *window, const argus::world::Snapshot &view, const Robot
     if (width <= 0 || height <= 0) {
         return true;
     }
+    if (controls.show_map()) {
+        argus::desktop::draw_occupancy(mapper, width, height);
+        return SDL_GL_SwapWindow(window);
+    }
     std::optional<argus::robot::Pose> truth;
     if (controls.show_truth()) {
         truth = robot.debug_truth().pose;
     }
     const auto *lidar = controls.show_lidar() && latest_lidar ? &*latest_lidar : nullptr;
-    argus::desktop::draw_warehouse(view, read.estimated_pose, truth, lidar, width, height);
+    argus::desktop::draw_warehouse(warehouse.snapshot(read.world_tick), read.estimated_pose, truth,
+                                   lidar, width, height);
     return SDL_GL_SwapWindow(window);
 }
 
@@ -218,6 +243,12 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         return *error;
     }
     const auto &warehouse = std::get<Warehouse>(loaded);
+    const auto scene = warehouse.snapshot(options.tick);
+    auto map_result = argus::mapping::Mapper::create(argus::app::map_spec(scene));
+    if (const auto *error = std::get_if<argus::mapping::MapError>(&map_result)) {
+        return *error;
+    }
+    auto &mapper = std::get<argus::mapping::Mapper>(map_result);
     const auto created = RobotSimulation::create(warehouse, options.tick, {}, {},
                                                  argus::simulation::warehouse_encoder_effects);
     if (const auto *error = std::get_if<RobotError>(&created)) {
@@ -225,7 +256,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     }
     const auto &initial = std::get<RobotSimulation>(created);
     auto robot = initial;
-    auto sensor_setup = SensorRig::create(warehouse.snapshot(options.tick).seed);
+    auto sensor_setup = SensorRig::create(scene.seed);
     if (const auto *error = std::get_if<SensorError>(&sensor_setup)) {
         return *error;
     }
@@ -234,7 +265,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     const auto probe_steps = std::max(options.drive_steps, options.sensor_steps);
     for (std::uint32_t step = 0; step < probe_steps; ++step) {
         robot.step(argus::app::probe_command);
-        capture_preview_sensors(rig, robot, latest_lidar);
+        capture_preview_sensors(rig, robot, latest_lidar, mapper);
     }
     const VideoSession video;
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -258,8 +289,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     }
     Controls controls;
     std::string title;
-    if (!present(window.get(), warehouse.snapshot(robot.telemetry().world_tick), robot, controls,
-                 latest_lidar, title)) {
+    if (!present(window.get(), warehouse, robot, controls, latest_lidar, mapper, title)) {
         return Error::graphics_present;
     }
 
@@ -285,6 +315,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         if (restarted) {
             robot = initial;
             rig.reset();
+            mapper.reset();
             latest_lidar.reset();
             controls.disarm();
         }
@@ -302,13 +333,12 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         }
         for (std::uint64_t step = 0; step < std::min(due, max_catchup_steps); ++step) {
             robot.step(controls.command());
-            capture_preview_sensors(rig, robot, latest_lidar);
+            capture_preview_sensors(rig, robot, latest_lidar, mapper);
         }
         const bool redraw = got_event && (event.type == SDL_EVENT_WINDOW_EXPOSED ||
                                           event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED);
         if ((due > 0 || redraw || control_refresh || restarted) &&
-            !present(window.get(), warehouse.snapshot(robot.telemetry().world_tick), robot,
-                     controls, latest_lidar, title)) {
+            !present(window.get(), warehouse, robot, controls, latest_lidar, mapper, title)) {
             return Error::graphics_present;
         }
     }
