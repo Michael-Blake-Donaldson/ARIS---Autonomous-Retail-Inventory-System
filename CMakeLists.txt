@@ -61,12 +61,17 @@ target_link_libraries(argus_inventory PUBLIC argus_core
     PRIVATE nlohmann_json::nlohmann_json unofficial::sqlite3::sqlite3)
 argus_project_target(argus_inventory)
 
-add_library(argus_audit STATIC src/audit/evidence.cpp)
-target_link_libraries(argus_audit PUBLIC argus_inventory argus_navigation)
+add_library(argus_audit STATIC src/audit/evidence.cpp src/audit/report.cpp)
+target_link_libraries(argus_audit PUBLIC argus_inventory argus_navigation
+    PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_audit)
 
+add_library(argus_audit_sim STATIC src/audit/demo.cpp)
+target_link_libraries(argus_audit_sim PUBLIC argus_audit PRIVATE argus_sensors)
+argus_project_target(argus_audit_sim)
+
 add_executable(argus-inventory apps/argus-inventory/main.cpp)
-target_link_libraries(argus-inventory PRIVATE argus_inventory nlohmann_json::nlohmann_json)
+target_link_libraries(argus-inventory PRIVATE argus_audit_sim nlohmann_json::nlohmann_json)
 argus_project_target(argus-inventory)
 
 find_package(spdlog CONFIG REQUIRED)

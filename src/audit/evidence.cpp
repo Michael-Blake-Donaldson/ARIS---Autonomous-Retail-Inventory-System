@@ -184,7 +184,8 @@ Finding classify(const std::optional<AisleId> &assigned, const TagEvidence *evid
     }
     std::uint32_t coverage = 0;
     for (const auto &visit : visits) {
-        if (visit.aisle == *assigned && visit.frames >= min_coverage_frames && visit.pass < 2) {
+        if (visit.aisle == *assigned && visit.outcome == "scanned" &&
+            visit.frames >= min_coverage_frames && visit.pass < 2) {
             coverage |= 1U << visit.pass;
         }
     }

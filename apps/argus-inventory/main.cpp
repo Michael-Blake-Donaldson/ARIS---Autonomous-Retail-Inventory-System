@@ -1,16 +1,22 @@
-#include "argus/inventory/repository.hpp"
+#include "argus/audit/mission.hpp"
 
+#include <charconv>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <nlohmann/json.hpp>
 
 namespace {
 
+namespace audit = argus::audit;
 using namespace argus::inventory;
 
-constexpr std::string_view usage = "Usage: argus-inventory DATABASE import DIRECTORY FILE.csv\n"
-                                   "       argus-inventory DATABASE import DIRECTORY FILE.json\n"
-                                   "       argus-inventory DATABASE find DPCI [AFTER_EPC]\n";
+constexpr std::string_view usage =
+    "Usage: argus-inventory DATABASE import DIRECTORY FILE.csv\n"
+    "       argus-inventory DATABASE import DIRECTORY FILE.json\n"
+    "       argus-inventory DATABASE find DPCI [AFTER_EPC]\n"
+    "       argus-inventory DATABASE find-item DPCI SESSION [LAST_AISLE]\n"
+    "       argus-inventory DATABASE audit AISLE SESSION [json|csv]\n";
 
 std::string_view argument(const char *input, std::size_t max) noexcept {
     std::size_t size = 0;
@@ -79,14 +85,59 @@ int find(const std::filesystem::path &file, const Dpci &id, const std::optional<
                                                  : nlohmann::json(nullptr)}});
 }
 
+int investigate(const std::filesystem::path &file, std::string_view action, int argc, char **argv) {
+    const auto id = argument(argv[4], 19);
+    std::uint64_t number = 0;
+    const auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), number);
+    if (id.empty() || id.size() > 19 || ec != std::errc{} || end != id.data() + id.size() ||
+        number == 0 ||
+        number > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        return error(Error::invalid_data, 2);
+    }
+    audit::Export format = audit::Export::json;
+    audit::Request request;
+    if (action == "find-item") {
+        Dpci product{std::string(argument(argv[3], 11))};
+        std::optional<AisleId> last;
+        if (argc == 6) {
+            last = AisleId{std::string(argument(argv[5], 32))};
+        }
+        if (!valid(product) || (last && !valid_code(last->value))) {
+            return error(Error::invalid_data, 2);
+        }
+        request = audit::FindItem{std::move(product), std::move(last)};
+    } else {
+        AisleId aisle{std::string(argument(argv[3], 32))};
+        const auto output = argc == 6 ? argument(argv[5], 4) : "json";
+        if (!valid_code(aisle.value) || (output != "json" && output != "csv")) {
+            return error(Error::invalid_data, 2);
+        }
+        format = output == "csv" ? audit::Export::csv : audit::Export::json;
+        request = audit::AuditAisle{std::move(aisle)};
+    }
+    auto opened = Repository::open(file);
+    if (const auto *rejected = std::get_if<Error>(&opened)) {
+        return error(*rejected);
+    }
+    const auto result = audit::run_demo(std::get<Repository>(opened), request, SessionId{number});
+    if (const auto *rejected = std::get_if<Error>(&result)) {
+        return error(*rejected);
+    }
+    const auto written = audit::write_report(std::cout, std::get<audit::Report>(result), format);
+    if (const auto *rejected = std::get_if<Error>(&written)) {
+        return error(*rejected);
+    }
+    return 0;
+}
+
 int run(int argc, char **argv) {
     if (argc == 2 && argument(argv[1], 6) == "--help") {
         return (std::cout << usage).flush() ? 0 : 1;
     }
-    if (argc >= 4 && argc <= 5) {
+    if (argc >= 4 && argc <= 6) {
         const auto path = argument(argv[1], 4096);
-        const auto action = argument(argv[2], 6);
-        if (!path.empty() && path.size() <= 4096 && action == "find") {
+        const auto action = argument(argv[2], 9);
+        if (!path.empty() && path.size() <= 4096 && action == "find" && argc <= 5) {
             const Dpci id{std::string{argument(argv[3], 11)}};
             std::optional<Epc> after;
             if (argc == 5) {
@@ -97,6 +148,10 @@ int run(int argc, char **argv) {
         if (!path.empty() && path.size() <= 4096 && action == "import" && argc == 5) {
             return import_file(std::filesystem::path{path}, argument(argv[3], 4096),
                                argument(argv[4], 80));
+        }
+        if (!path.empty() && path.size() <= 4096 && argc >= 5 &&
+            (action == "find-item" || action == "audit")) {
+            return investigate(std::filesystem::path{path}, action, argc, argv);
         }
     }
     std::cerr << usage;
