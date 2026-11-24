@@ -102,9 +102,9 @@ if(BUILD_TESTING)
     add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
         tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp
-        tests/unit/navigation_test.cpp tests/unit/inventory_test.cpp)
+        tests/unit/navigation_test.cpp tests/unit/inventory_test.cpp tests/unit/audit_test.cpp)
     target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping
-        argus_navigation argus_inventory unofficial::sqlite3::sqlite3 GTest::gtest_main)
+        argus_navigation argus_inventory argus_audit unofficial::sqlite3::sqlite3 GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
@@ -113,6 +113,11 @@ if(BUILD_TESTING)
         "-DARGUS_CATALOG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory"
         "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/inventory-cli-tests"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/inventory_cli.cmake")
+    add_test(NAME argus-inventory.audit COMMAND "${CMAKE_COMMAND}"
+        "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-inventory>"
+        "-DARGUS_CATALOG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory"
+        "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/audit-cli-tests"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/audit_cli.cmake")
 
     add_executable(argus-map-evaluation tests/evaluation/map_evaluation.cpp)
     target_link_libraries(argus-map-evaluation PRIVATE argus_mapping argus_sensors)
