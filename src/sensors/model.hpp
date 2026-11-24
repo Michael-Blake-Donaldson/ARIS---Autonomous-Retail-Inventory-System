@@ -1,7 +1,10 @@
 #pragma once
 
+#include "argus/core/random.hpp"
 #include "argus/simulation/sensor_query.hpp"
 #include "argus/simulation/sensors.hpp"
+
+#include <map>
 
 namespace argus::simulation::detail {
 

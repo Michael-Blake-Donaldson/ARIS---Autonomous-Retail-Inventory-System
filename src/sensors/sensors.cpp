@@ -3,6 +3,7 @@
 #include "argus/simulation/robot.hpp"
 #include "model.hpp"
 
+#include <deque>
 #include <limits>
 #include <utility>
 
@@ -43,6 +44,21 @@ sensors::SensorId id_of(const sensors::Observation &sample) {
 
 } // namespace
 
+struct SensorRig::State {
+    State(std::uint32_t run_seed, SensorConfig settings)
+        : config{settings}, seed{run_seed}, lidar_random{seed ^ 0x5DA33D51U},
+          rfid_random{seed ^ 0x2C859AC3U} {}
+
+    SensorConfig config;
+    std::uint32_t seed;
+    Random lidar_random;
+    Random rfid_random;
+    std::uint64_t last_sample{};
+    std::map<std::string, std::uint32_t> dwell;
+    std::deque<sensors::Observation> pending;
+    sensors::Throughput stats;
+};
+
 Result<SensorRig, SensorError> SensorRig::create(std::uint32_t seed, SensorConfig config) {
     if (!valid(config)) {
         return SensorError::invalid_configuration;
@@ -51,18 +67,25 @@ Result<SensorRig, SensorError> SensorRig::create(std::uint32_t seed, SensorConfi
 }
 
 SensorRig::SensorRig(std::uint32_t seed, SensorConfig config)
-    : config_{config}, lidar_random_{seed ^ 0x5DA33D51U}, rfid_random_{seed ^ 0x2C859AC3U} {}
+    : state_{std::make_unique<State>(seed, config)} {}
+
+SensorRig::SensorRig(SensorRig &&) noexcept = default;
+SensorRig &SensorRig::operator=(SensorRig &&) noexcept = default;
+SensorRig::~SensorRig() = default;
+
+void SensorRig::reset() { state_ = std::make_unique<State>(state_->seed, state_->config); }
 
 bool SensorRig::capture(const RobotSimulation &robot) {
+    auto &state = *state_;
     const auto telemetry = robot.telemetry();
     const auto tick = telemetry.sample_tick;
-    if (tick <= last_sample_) {
+    if (tick <= state.last_sample) {
         return false;
     }
-    if (tick != last_sample_ + 1 || !telemetry.sensors_powered) {
-        dwell_.clear();
+    if (tick != state.last_sample + 1 || !telemetry.sensors_powered) {
+        state.dwell.clear();
     }
-    last_sample_ = tick;
+    state.last_sample = tick;
 
     const auto timestamp =
         tick <= max_counter / argus::robot::step_ms ? tick * argus::robot::step_ms : max_counter;
@@ -75,41 +98,43 @@ bool SensorRig::capture(const RobotSimulation &robot) {
         return true;
     }
     const SensorQuery world{robot.warehouse_};
-    if (tick % config_.lidar.period_ticks == 0) {
+    if (tick % state.config.lidar.period_ticks == 0) {
         publish(detail::scan_lidar(world, robot.truth_.pose, header(sensors::SensorId::lidar),
-                                   config_.lidar, lidar_random_));
+                                   state.config.lidar, state.lidar_random));
     }
-    if (tick % config_.rfid.period_ticks == 0) {
+    if (tick % state.config.rfid.period_ticks == 0) {
         publish(detail::scan_rfid(world, robot.truth_.pose, header(sensors::SensorId::rfid),
-                                  config_.rfid, dwell_, rfid_random_));
+                                  state.config.rfid, state.dwell, state.rfid_random));
     }
     return true;
 }
 
 void SensorRig::publish(sensors::Observation observation) {
+    auto &state = *state_;
     const auto id = sensors::index(id_of(observation));
     // Append first so a failed allocation leaves existing samples and counters unchanged.
-    pending_.push_back(std::move(observation));
-    increment(stats_.streams.at(id).produced);
-    if (pending_.size() > config_.capacity) {
-        increment(stats_.streams.at(sensors::index(id_of(pending_.front()))).dropped);
-        pending_.pop_front();
+    state.pending.push_back(std::move(observation));
+    increment(state.stats.streams.at(id).produced);
+    if (state.pending.size() > state.config.capacity) {
+        increment(state.stats.streams.at(sensors::index(id_of(state.pending.front()))).dropped);
+        state.pending.pop_front();
     }
 }
 
 std::optional<sensors::Observation> SensorRig::pop() {
-    if (pending_.empty()) {
+    auto &state = *state_;
+    if (state.pending.empty()) {
         return std::nullopt;
     }
-    auto sample = std::move(pending_.front());
-    pending_.pop_front();
-    increment(stats_.streams.at(sensors::index(id_of(sample))).consumed);
+    auto sample = std::move(state.pending.front());
+    state.pending.pop_front();
+    increment(state.stats.streams.at(sensors::index(id_of(sample))).consumed);
     return sample;
 }
 
 sensors::Throughput SensorRig::throughput() const noexcept {
-    auto result = stats_;
-    result.pending = static_cast<std::uint32_t>(pending_.size());
+    auto result = state_->stats;
+    result.pending = static_cast<std::uint32_t>(state_->pending.size());
     return result;
 }
 

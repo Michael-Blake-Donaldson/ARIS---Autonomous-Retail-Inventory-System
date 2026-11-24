@@ -1,11 +1,9 @@
 #pragma once
 
-#include "argus/core/random.hpp"
 #include "argus/core/result.hpp"
 #include "argus/sensors/observations.hpp"
 
-#include <deque>
-#include <map>
+#include <memory>
 #include <numbers>
 
 namespace argus::simulation {
@@ -49,6 +47,12 @@ class SensorRig {
     [[nodiscard]] static Result<SensorRig, SensorError> create(std::uint32_t seed,
                                                                SensorConfig config = {});
 
+    SensorRig(SensorRig &&) noexcept;
+    SensorRig &operator=(SensorRig &&) noexcept;
+    ~SensorRig();
+
+    void reset();
+
     // Publish at most once per robot step. Gaps invalidate RFID dwell.
     bool capture(const RobotSimulation &robot);
     [[nodiscard]] std::optional<sensors::Observation> pop();
@@ -58,13 +62,8 @@ class SensorRig {
     SensorRig(std::uint32_t seed, SensorConfig config);
     void publish(sensors::Observation observation);
 
-    SensorConfig config_;
-    Random lidar_random_;
-    Random rfid_random_;
-    std::uint64_t last_sample_{};
-    std::map<std::string, std::uint32_t> dwell_;
-    std::deque<sensors::Observation> pending_;
-    sensors::Throughput stats_;
+    struct State;
+    std::unique_ptr<State> state_;
 };
 
 } // namespace argus::simulation

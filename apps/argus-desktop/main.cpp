@@ -229,8 +229,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     if (const auto *error = std::get_if<SensorError>(&sensor_setup)) {
         return *error;
     }
-    const auto &initial_rig = std::get<SensorRig>(sensor_setup);
-    auto rig = initial_rig;
+    auto &rig = std::get<SensorRig>(sensor_setup);
     std::optional<LidarScan> latest_lidar;
     const auto probe_steps = std::max(options.drive_steps, options.sensor_steps);
     for (std::uint32_t step = 0; step < probe_steps; ++step) {
@@ -285,7 +284,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         const bool restarted = controls.restart_requested() && !robot.telemetry().emergency_latched;
         if (restarted) {
             robot = initial;
-            rig = initial_rig;
+            rig.reset();
             latest_lidar.reset();
             controls.disarm();
         }

@@ -313,4 +313,26 @@ TEST(SensorQueue, HonorsCadencePowerAndConfigLimits) {
     EXPECT_TRUE(std::holds_alternative<SensorError>(SensorRig::create(0, settings)));
 }
 
+TEST(SensorQueue, ResetsPendingSamplesCountersAndRandomStreams) {
+    auto settings = config();
+    settings.lidar.range_noise_m = 0.1;
+    auto sensor = rig(settings);
+    auto first_robot = fixture();
+    const auto first = capture(first_robot, sensor);
+    first_robot.step({});
+    ASSERT_TRUE(sensor.capture(first_robot));
+    ASSERT_EQ(sensor.throughput().pending, 3U);
+    sensor.reset();
+    EXPECT_EQ(sensor.throughput().pending, 0U);
+    for (const auto &stream : sensor.throughput().streams) {
+        EXPECT_EQ(stream.produced, 0U);
+        EXPECT_EQ(stream.consumed, 0U);
+        EXPECT_EQ(stream.dropped, 0U);
+    }
+    auto replay_robot = fixture();
+    const auto replay = capture(replay_robot, sensor);
+    EXPECT_EQ(first.lidar.ranges_m, replay.lidar.ranges_m);
+    EXPECT_EQ(first.rfid.reads, replay.rfid.reads);
+}
+
 } // namespace
