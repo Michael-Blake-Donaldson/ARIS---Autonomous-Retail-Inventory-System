@@ -14,6 +14,7 @@ The robot starts at the warehouse spawn, facing east. Positive heading turns cou
 | Home | Reset the simulation pose, battery, and warehouse tick with Space released and the stop latch cleared. |
 | F3 | Toggle the labeled developer truth overlay. |
 | F4 | Toggle LiDAR returns projected from the estimate at capture time. |
+| F5 | Toggle the estimated occupancy map and localization status. |
 | Escape | Close the preview. |
 
 The mint disk shows the estimate from the two simulated wheel encoders. F3 adds the cyan true-pose outline. The title displays battery level and active faults. A large desktop scheduling delay caps physics catch-up at five steps and clears manual input.

@@ -1,6 +1,6 @@
 # ARGUS
 
-ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. The Windows preview lets you drive a simulated robot through three layouts and see measured LiDAR returns. The headless executable validates, exports and replays the same scenarios with simulated sensor data.
+ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. Drive the simulated robot in the Windows preview to build an occupancy map. The headless executable replays the same scenarios and can export and reload estimated maps.
 
 ## Build and test
 
@@ -46,13 +46,16 @@ out\build\windows-debug\argus-desktop.exe --warehouse cluttered-receiving
 out\build\windows-debug\argus-headless.exe --warehouse broad-stockroom --tick 40
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --drive-steps 220
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --sensor-steps 36
+out\build\windows-debug\argus-headless.exe --warehouse small-backroom --map-steps 80
+out\build\windows-debug\argus-headless.exe --warehouse small-backroom --export-map 80 > backroom.argmap
+out\build\windows-debug\argus-headless.exe --warehouse small-backroom --map-stdin < backroom.argmap
 out\build\windows-debug\argus-headless.exe --export-warehouse small-backroom > scenario.json
 out\build\windows-debug\argus-headless.exe --scenario-stdin --tick 40 < scenario.json
 ```
 
 These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, and `broad-stockroom`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
 
-The desktop requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances the simulator every 50 ms. Hold Space and use the arrow keys to drive. Release Space to brake, press X for a latched emergency stop, and press R with Space released to clear it. Home restarts the run after the latch is clear and Space is released. F4 toggles measured LiDAR returns. F3 toggles the labeled developer truth overlay. Escape closes the preview.
+The desktop requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances the simulator every 50 ms. Hold Space and use the arrow keys to drive. Release Space to brake, press X for a latched emergency stop, and press R with Space released to clear it. Home restarts the run after the latch is clear and Space is released. F5 opens the estimated occupancy map. F4 toggles measured LiDAR returns and F3 toggles the labeled developer truth overlay in the warehouse preview. Escape closes the preview.
 
 Use `--drive-steps N` with a warehouse to run 1–2,000 straight-drive steps. Headless output includes odometry, commanded and measured velocities, battery and collision status. In the desktop, the same flag runs the probe before manual control begins.
 
@@ -60,4 +63,4 @@ Use `--sensor-steps N` to capture wheel odometry, LiDAR ranges and fictional RFI
 
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
-See the [sensor models and outputs](docs/sensors.md), [Phase 4 evidence](docs/testing/phase-04.md), [robot controls](docs/robot.md), and [warehouse format](docs/warehouse.md).
+See the [mapping and snapshot format](docs/mapping.md), [Phase 5 evidence](docs/testing/phase-05.md), [sensor models](docs/sensors.md), and [robot controls](docs/robot.md).
