@@ -48,6 +48,10 @@ add_library(argus_mapping STATIC src/mapping/grid.cpp src/mapping/mapper.cpp src
 target_link_libraries(argus_mapping PUBLIC argus_core)
 argus_project_target(argus_mapping)
 
+add_library(argus_navigation STATIC src/navigation/planner.cpp)
+target_link_libraries(argus_navigation PUBLIC argus_mapping)
+argus_project_target(argus_navigation)
+
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC
