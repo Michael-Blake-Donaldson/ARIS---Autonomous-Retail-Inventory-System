@@ -54,7 +54,7 @@ out\build\windows-debug\argus-headless.exe --export-warehouse small-backroom > s
 out\build\windows-debug\argus-headless.exe --scenario-stdin --tick 40 < scenario.json
 ```
 
-These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, and `broad-stockroom`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
+These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, `broad-stockroom`, and `rfid-audit`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
 
 The desktop requires an interactive Windows session with OpenGL support. It defaults to `small-backroom` and advances the simulator every 50 ms. Hold Space and use the arrow keys to drive. Release Space to brake, press X for a latched emergency stop, and press R with Space released to clear it. Home restarts the run after the latch is clear and Space is released. F5 opens the estimated occupancy map. F4 toggles measured LiDAR returns and F3 toggles the labeled developer truth overlay in the warehouse preview. Escape closes the preview.
 
@@ -65,6 +65,8 @@ Use `--sensor-steps N` to capture wheel odometry, LiDAR ranges and fictional RFI
 Use `--explore-steps N` for a bounded autonomous survey with route planning and obstacle yielding. Add `--dock-mm X Y` to configure a charging waypoint in the map frame. The probe reports its exit reason, map classification counts, and replanning activity. See the [navigation interface](docs/navigation.md) and [Phase 6 verification](docs/testing/phase-06.md).
 
 Use `argus-inventory` to import the fictional CSV or JSON catalog into SQLite and look up assigned EPCs by DPCI. The repository also stores RFID reads by mission and scan session. See the [inventory commands and formats](docs/inventory.md).
+
+Use `argus-inventory DATABASE find-item DPCI SESSION` to investigate likely aisles and `argus-inventory DATABASE audit AISLE SESSION` to compare expected stock with unique observed EPCs. See the [RFID audit and review workflow](docs/audit.md).
 
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
