@@ -451,7 +451,8 @@ void Panels::findings() {
 
 void Panels::missions() {
     title("Simulated mission queue");
-    ImGui::BeginDisabled(busy());
+    const bool active = mission_ && !mission::terminal(mission_->state);
+    ImGui::BeginDisabled(busy() || active);
     for (const auto &[kind, label] : {std::pair{JobKind::scan_mission, "Scan all aisles"},
                                       std::pair{JobKind::dock_mission, "Return to dock"},
                                       std::pair{JobKind::inspect_mission, "Manual inspection"}}) {
@@ -459,7 +460,9 @@ void Panels::missions() {
             static_cast<void>(queue({kind, kind == JobKind::inspect_mission ? "TECH" : ""}));
         }
     }
-    if (mission_ && !mission::terminal(mission_->state)) {
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(busy());
+    if (active) {
         if (mission_->intent.workflow == mission::Workflow::inspect &&
             mission_->state == mission::State::executing && ImGui::Button("Confirm inspection")) {
             static_cast<void>(queue({JobKind::confirm_inspection, {}, {}, mission_->intent.id}));

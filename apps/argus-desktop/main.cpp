@@ -87,7 +87,7 @@ class Graphics {
 
     void event(const SDL_Event &event) const { ImGui_ImplSDL3_ProcessEvent(&event); }
 
-    bool draw(Scene &scene, const LiveEngine &engine, Panels &ui, bool focused,
+    bool draw(Scene &scene, const LiveEngine &engine, Panels &ui, bool focused, bool demo_scene,
               Recorder *recorder) const {
         int width{};
         int height{};
@@ -123,7 +123,7 @@ class Graphics {
                                 height - static_cast<int>((canvas.y + canvas.height) * sy),
                                 static_cast<int>(canvas.width * sx),
                                 static_cast<int>(canvas.height * sy)};
-        const auto regions = engine.layout().scenario == ScenarioId{801}
+        const auto regions = demo_scene && engine.layout().scenario == ScenarioId{801}
                                  ? ui.regions()
                                  : std::span<const EvidenceRegion>{};
         scene.draw(viewport, frame, ui.camera, ui.overlays, regions,
@@ -412,7 +412,7 @@ class Tour {
     std::size_t max_rows_{};
 };
 
-app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode) {
+app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_scene) {
     Graphics graphics{window};
     if (!graphics.open()) {
         return Error::graphics_context;
@@ -475,11 +475,11 @@ app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode) {
             }
             tour.graphics_rebuilt();
         }
-        if (!minimized && !graphics.draw(scene, engine, ui, focused, capture)) {
+        if (!minimized && !graphics.draw(scene, engine, ui, focused, demo_scene, capture)) {
             controls.disarm();
             engine.step({}, LiveAction::pause, false);
             if (capture || !graphics.rebuild() ||
-                !graphics.draw(scene, engine, ui, false, nullptr)) {
+                !graphics.draw(scene, engine, ui, false, demo_scene, nullptr)) {
                 return Error::graphics_present;
             }
         }
@@ -537,7 +537,9 @@ app::Status desktop(const app::Options &options, Mode mode) {
         return Error::window_creation;
     }
     SDL_SetWindowMinimumSize(window.get(), 900, 610);
-    return loop(window.get(), engine, mode);
+    return loop(window.get(), engine, mode,
+                chosen.warehouse_source == app::WarehouseSource::fixture &&
+                    chosen.fixture == "rfid-audit");
 }
 
 app::Status interactive(const app::Options &options) { return desktop(options, Mode::interactive); }
