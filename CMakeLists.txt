@@ -24,10 +24,12 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${ARGUS_FIXTURE_DIR}/small-backroom.json"
     "${ARGUS_FIXTURE_DIR}/cluttered-receiving.json"
     "${ARGUS_FIXTURE_DIR}/broad-stockroom.json"
+    "${ARGUS_FIXTURE_DIR}/rfid-audit.json"
 )
 file(READ "${ARGUS_FIXTURE_DIR}/small-backroom.json" ARGUS_SMALL_BACKROOM)
 file(READ "${ARGUS_FIXTURE_DIR}/cluttered-receiving.json" ARGUS_CLUTTERED_RECEIVING)
 file(READ "${ARGUS_FIXTURE_DIR}/broad-stockroom.json" ARGUS_BROAD_STOCKROOM)
+file(READ "${ARGUS_FIXTURE_DIR}/rfid-audit.json" ARGUS_RFID_AUDIT)
 configure_file(cmake/warehouse_fixtures.hpp.in generated/warehouse_fixtures.hpp @ONLY)
 add_library(argus_world STATIC
     src/world/fixtures.cpp src/world/geometry.cpp src/world/motion.cpp
@@ -58,6 +60,10 @@ add_library(argus_inventory STATIC src/inventory/catalog.cpp src/inventory/impor
 target_link_libraries(argus_inventory PUBLIC argus_core
     PRIVATE nlohmann_json::nlohmann_json unofficial::sqlite3::sqlite3)
 argus_project_target(argus_inventory)
+
+add_library(argus_audit STATIC src/audit/evidence.cpp)
+target_link_libraries(argus_audit PUBLIC argus_inventory argus_navigation)
+argus_project_target(argus_audit)
 
 add_executable(argus-inventory apps/argus-inventory/main.cpp)
 target_link_libraries(argus-inventory PRIVATE argus_inventory nlohmann_json::nlohmann_json)

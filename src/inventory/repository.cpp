@@ -431,6 +431,44 @@ Repository::expected_at(const AisleId &aisle, const std::optional<ExpectedStock>
     });
 }
 
+Result<Assignment, Error> Repository::assignment(const Epc &epc) {
+    if (!valid(epc)) {
+        return Error::invalid_data;
+    }
+    return checked<Assignment>([&] {
+        Statement get{db_.get(), R"sql(
+            SELECT u.product,u.assigned_bin,b.aisle FROM units u JOIN bins b ON b.id=u.assigned_bin
+            WHERE u.epc=?1
+        )sql"};
+        get.text(1, epc.value);
+        if (!get.row()) {
+            throw Error::not_found;
+        }
+        return Assignment{{epc, Dpci{get.text(0)}, BinId{get.text(1)}}, AisleId{get.text(2)}};
+    });
+}
+
+Result<std::vector<Assignment>, Error> Repository::assigned_at(const AisleId &aisle,
+                                                               const std::optional<Epc> &after) {
+    if (!valid_code(aisle.value) || (after && !valid(*after))) {
+        return Error::invalid_data;
+    }
+    return checked<std::vector<Assignment>>([&] {
+        Statement get{db_.get(), R"sql(
+            SELECT u.epc,u.product,u.assigned_bin FROM units u JOIN bins b ON b.id=u.assigned_bin
+            WHERE b.aisle=?1 AND u.epc>?2 ORDER BY u.epc LIMIT ?3
+        )sql"};
+        get.text(1, aisle.value);
+        get.text(2, after ? std::string_view{after->value} : std::string_view{});
+        get.integer(3, page_size);
+        std::vector<Assignment> result;
+        while (get.row()) {
+            result.push_back({{Epc{get.text(0)}, Dpci{get.text(1)}, BinId{get.text(2)}}, aisle});
+        }
+        return result;
+    });
+}
+
 Status Repository::start_session(ScanSession session) {
     if (!positive_id(session.id.value()) || !positive_id(session.mission.value()) ||
         !positive_id(session.robot.value()) || session.started_ms > max_sql_integer) {

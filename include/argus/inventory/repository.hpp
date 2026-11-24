@@ -46,6 +46,11 @@ struct ProductPage {
     bool has_more{};
 };
 
+struct Assignment {
+    Unit unit;
+    AisleId aisle;
+};
+
 inline constexpr std::size_t page_size = 256;
 inline constexpr std::size_t max_raw_evidence = 256;
 
@@ -60,6 +65,9 @@ class Repository {
                                                   const std::optional<Epc> &after = {});
     [[nodiscard]] Result<std::vector<ExpectedStock>, Error>
     expected_at(const AisleId &aisle, const std::optional<ExpectedStock> &after = {});
+    [[nodiscard]] Result<Assignment, Error> assignment(const Epc &epc);
+    [[nodiscard]] Result<std::vector<Assignment>, Error>
+    assigned_at(const AisleId &aisle, const std::optional<Epc> &after = {});
 
     [[nodiscard]] Status start_session(ScanSession session);
     [[nodiscard]] Result<ScanSession, Error> session(SessionId id);

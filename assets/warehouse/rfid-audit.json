@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0.0",
+  "scenarioId": 801,
+  "seed": 5438,
+  "sizeMm": [12000, 8000],
+  "robot": {"spawnMm":[4125,3125],"radiusMm":300},
+  "fixtures": [
+    {"id":"soft-rack","kind":"rack","boundsMm":[2200,4800,1000,2000],"aisle":"soft","shelfHeightsMm":[800]},
+    {"id":"tech-rack","kind":"rack","boundsMm":[7800,4800,1000,2000],"aisle":"tech","shelfHeightsMm":[800]}
+  ],
+  "zones": [
+    {"id":"soft","kind":"aisle","boundsMm":[3200,4300,1600,2900]},
+    {"id":"tech","kind":"aisle","boundsMm":[6000,4300,1800,2900]},
+    {"id":"receiving","kind":"receiving","boundsMm":[800,800,2500,2400]},
+    {"id":"door","kind":"doorway","boundsMm":[5100,800,1800,1500]},
+    {"id":"service-dock","kind":"dock","boundsMm":[9000,800,2000,1600]},
+    {"id":"charge","kind":"charging","boundsMm":[9450,1050,1000,1000]}
+  ],
+  "actors": [],
+  "items": [
+    {"epc":"A00000000000000000000001","rack":"soft-rack","shelf":1,"offsetMm":[780,750]},
+    {"epc":"A00000000000000000000002","rack":"tech-rack","shelf":1,"offsetMm":[140,740]},
+    {"epc":"A0000000000000000000000A","rack":"tech-rack","shelf":1,"offsetMm":[210,1200]}
+  ]
+}

@@ -14,6 +14,9 @@ Result<std::string_view, ScenarioError> fixture_json(std::string_view name) noex
     if (name == "broad-stockroom") {
         return detail::broad_stockroom_json.substr(1);
     }
+    if (name == "rfid-audit") {
+        return detail::rfid_audit_json.substr(1);
+    }
     return ScenarioError::unknown_fixture;
 }
 
