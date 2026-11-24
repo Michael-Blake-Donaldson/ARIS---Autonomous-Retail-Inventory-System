@@ -36,6 +36,10 @@ target_include_directories(argus_world PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gene
 target_link_libraries(argus_world PUBLIC argus_core PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_world)
 
+add_library(argus_robot STATIC src/robot/robot.cpp)
+target_link_libraries(argus_robot PUBLIC argus_world)
+argus_project_target(argus_robot)
+
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp src/app/warehouse_io.cpp)
@@ -60,8 +64,8 @@ if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
     add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
-        tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp)
-    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_world GTest::gtest_main)
+        tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_world argus_robot GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
