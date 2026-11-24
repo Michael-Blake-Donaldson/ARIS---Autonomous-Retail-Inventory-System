@@ -9,7 +9,7 @@ namespace argus::navigation {
 
 struct Settings {
     Meters radius{0.26};
-    std::optional<Point> dock;
+    std::optional<Point> dock{};
     std::uint64_t reserve_uj{250000000};
     std::uint64_t energy_per_meter_uj{80000000};
 };
