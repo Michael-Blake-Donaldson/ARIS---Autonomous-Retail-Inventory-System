@@ -70,8 +70,8 @@ add_library(argus_audit_sim STATIC src/audit/demo.cpp)
 target_link_libraries(argus_audit_sim PUBLIC argus_audit PRIVATE argus_sensors)
 argus_project_target(argus_audit_sim)
 
-add_library(argus_mission STATIC src/mission/model.cpp)
-target_link_libraries(argus_mission PUBLIC argus_inventory)
+add_library(argus_mission STATIC src/mission/model.cpp src/mission/store.cpp)
+target_link_libraries(argus_mission PUBLIC argus_inventory PRIVATE unofficial::sqlite3::sqlite3)
 argus_project_target(argus_mission)
 
 add_executable(argus-inventory apps/argus-inventory/main.cpp)

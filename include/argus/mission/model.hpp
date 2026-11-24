@@ -78,6 +78,7 @@ struct Checkpoint {
     std::uint64_t covered_scans{};
     std::uint64_t raw_reads{};
     std::uint64_t exceptions{};
+    std::uint64_t covered_mask{};
 };
 
 struct Lease {

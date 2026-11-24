@@ -1,6 +1,7 @@
 #include "argus/mission/model.hpp"
 
 #include <array>
+#include <bit>
 #include <limits>
 
 namespace argus::mission {
@@ -87,7 +88,8 @@ bool valid(const Checkpoint &point) noexcept {
     return point.sample <= 1000000 && point.elapsed_ms <= 7200000 && point.planned_mm <= 10000000 &&
            point.actual_mm <= 10000000 && point.planned_scans <= 256 &&
            point.covered_scans <= point.planned_scans && point.raw_reads <= 1000000 &&
-           point.exceptions <= 100000;
+           point.exceptions <= 100000 && point.covered_mask <= 0xffff &&
+           point.covered_scans == static_cast<std::uint64_t>(std::popcount(point.covered_mask));
 }
 
 bool terminal(State state) noexcept {
