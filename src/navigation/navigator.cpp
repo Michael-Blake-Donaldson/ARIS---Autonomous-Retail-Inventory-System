@@ -322,6 +322,8 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
                 if (telemetry.collision_blocked) {
                     return stop(State::yielding, Reason::obstacle);
                 }
+                progress_.state = State::exploring;
+                progress_.reason = Reason::none;
                 const auto turn =
                     std::remainder(destination_->heading.value() - pose.heading.value(), 2.0 * pi);
                 if (std::abs(turn) <= 0.09) {
@@ -420,7 +422,8 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
     control_tick_ = tick;
     if (!estimate || !estimate->reliable || !finite(estimate->pose) ||
         !finite(telemetry.estimated_pose) || estimate->sample_tick > tick ||
-        tick - estimate->sample_tick > 2 || !(std::abs(telemetry.measured.linear.value()) <= 5.0)) {
+        tick - estimate->sample_tick > 2 || !(std::abs(telemetry.measured.linear.value()) <= 5.0) ||
+        !(std::abs(telemetry.measured.angular.value()) <= 10.0)) {
         return stop(State::waiting, Reason::uncertain_pose);
     }
     if (!telemetry.sensors_powered || !scan || scan->header.sample_tick > tick ||

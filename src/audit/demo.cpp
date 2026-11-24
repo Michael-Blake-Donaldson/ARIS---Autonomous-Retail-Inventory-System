@@ -8,6 +8,7 @@
 #include <cmath>
 #include <numbers>
 #include <numeric>
+#include <set>
 #include <utility>
 
 namespace argus::audit {
@@ -293,14 +294,16 @@ void finish(Repository &repository, Scope &scope, const Evidence &evidence, Repo
         report.rows.push_back(row(target, target.unit.epc, evidence, report.visits));
     }
     if (const auto *audit = std::get_if<AuditAisle>(&report.request)) {
+        std::set<std::string_view> assigned_epcs;
         for (const auto &target : scope.targets) {
+            assigned_epcs.insert(target.unit.epc.value);
             const auto &product = target.unit.product;
             ++scope.quantities.try_emplace(product.value, Quantity{product})
                   .first->second.catalog_assigned;
         }
-        for (const auto &[epc, tag] : evidence.tags()) {
-            if (std::ranges::any_of(scope.targets,
-                                    [&](const Assignment &a) { return a.unit.epc.value == epc; })) {
+        for (const auto &entry : evidence.tags()) {
+            const auto &tag = entry.second;
+            if (assigned_epcs.contains(tag.epc.value)) {
                 continue;
             }
             auto assignment = repository.assignment(tag.epc);
