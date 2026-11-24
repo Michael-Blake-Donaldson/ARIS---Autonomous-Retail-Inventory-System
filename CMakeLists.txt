@@ -44,6 +44,10 @@ add_library(argus_sensors STATIC src/sensors/lidar.cpp src/sensors/rfid.cpp src/
 target_link_libraries(argus_sensors PUBLIC argus_robot)
 argus_project_target(argus_sensors)
 
+add_library(argus_mapping STATIC src/mapping/grid.cpp src/mapping/mapper.cpp)
+target_link_libraries(argus_mapping PUBLIC argus_core)
+argus_project_target(argus_mapping)
+
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC
@@ -70,8 +74,8 @@ if(BUILD_TESTING)
     include(GoogleTest)
     add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
-        tests/unit/sensors_test.cpp)
-    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors GTest::gtest_main)
+        tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
