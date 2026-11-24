@@ -79,8 +79,10 @@ if(BUILD_TESTING)
     include(GoogleTest)
     add_executable(argus_unit_tests tests/unit/core_test.cpp tests/unit/options_test.cpp
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
-        tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp)
-    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping GTest::gtest_main)
+        tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp
+        tests/unit/navigation_test.cpp)
+    target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping
+        argus_navigation GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
 
@@ -88,6 +90,11 @@ if(BUILD_TESTING)
     target_link_libraries(argus-map-evaluation PRIVATE argus_mapping argus_sensors)
     argus_project_target(argus-map-evaluation)
     add_test(NAME argus-map-evaluation COMMAND argus-map-evaluation)
+
+    add_executable(argus-navigation-evaluation tests/evaluation/navigation_evaluation.cpp)
+    target_link_libraries(argus-navigation-evaluation PRIVATE argus_navigation argus_sensors)
+    argus_project_target(argus-navigation-evaluation)
+    add_test(NAME argus-navigation-evaluation COMMAND argus-navigation-evaluation)
 
     function(argus_cli_smoke target)
         add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"
@@ -116,6 +123,10 @@ if(BUILD_TESTING)
         "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
         "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/map-cli-tests"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/map_cli.cmake"
+    )
+    add_test(NAME argus-headless.navigation COMMAND "${CMAKE_COMMAND}"
+        "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/navigation_cli.cmake"
     )
     if(TARGET argus-desktop)
         argus_cli_smoke(argus-desktop)

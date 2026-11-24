@@ -24,9 +24,32 @@ bool finite(robot::Pose pose) noexcept {
            std::isfinite(pose.heading.value());
 }
 
-bool safe_edge(const Costmap &map, Cell from, Cell to) noexcept {
-    return map.traversable(to) && map.traversable({from.x, to.y}) &&
-           map.traversable({to.x, from.y});
+bool safe_edge(const mapping::Grid &grid, const Costmap &map, Cell from, Cell to) noexcept {
+    const auto free = [&](Cell at) {
+        return map.traversable(at) && grid.occupancy(at) == mapping::Occupancy::free;
+    };
+    const auto dx = std::max(from.x, to.x) - std::min(from.x, to.x);
+    const auto dy = std::max(from.y, to.y) - std::min(from.y, to.y);
+    return dx <= 1 && dy <= 1 && free(to) && free({from.x, to.y}) && free({to.x, from.y});
+}
+
+bool safe_advance(const mapping::Grid &grid, const Costmap &map, Cell start, robot::Pose pose,
+                  double speed) {
+    const auto here = position(pose);
+    const auto heading = pose.heading.value();
+    const auto advance = 0.20 * speed + speed * speed / 3.6;
+    const auto segments = static_cast<int>(std::ceil(advance * 2000.0 / grid.spec().cell_mm));
+    const auto dx = advance * std::cos(heading);
+    const auto dy = advance * std::sin(heading);
+    for (int i = 1; i <= segments; ++i) {
+        const double fraction = static_cast<double>(i) / segments;
+        const auto next = grid.locate({here.x_m + fraction * dx, here.y_m + fraction * dy});
+        if (!next || !safe_edge(grid, map, start, *next)) {
+            return false;
+        }
+        start = *next;
+    }
+    return true;
 }
 
 } // namespace
@@ -102,11 +125,19 @@ robot::Command Navigator::stop(State state, Reason reason) noexcept {
 
 bool Navigator::observe(const sensors::LidarScan &scan) {
     const auto &header = scan.header;
-    if (header.sensor != sensors::SensorId::lidar || !finite(header.estimated_pose) ||
-        !std::isfinite(scan.first_angle_rad) || std::abs(scan.first_angle_rad) > 2.0 * pi ||
-        !(scan.angle_step_rad > 0.0 && scan.angle_step_rad <= pi) ||
-        !(scan.range_error_m >= 0.0 && scan.range_error_m <= 1.0) || scan.ranges_m.empty() ||
-        scan.ranges_m.size() > max_returns || scan.return_count > scan.ranges_m.size()) {
+    constexpr auto max_tick = std::numeric_limits<std::uint64_t>::max();
+    const auto stamp = header.sample_tick <= max_tick / robot::step_ms
+                           ? header.sample_tick * robot::step_ms
+                           : max_tick;
+    if (header.sensor != sensors::SensorId::lidar ||
+        header.provenance != sensors::Provenance::simulated || header.timestamp_ms != stamp ||
+        !finite(header.estimated_pose) || !(std::abs(scan.first_angle_rad) <= pi) ||
+        !(scan.angle_step_rad > 0.0 && scan.angle_step_rad <= pi / 36.0) ||
+        !(scan.range_error_m >= 0.0 && scan.range_error_m <= 0.5) ||
+        scan.ranges_m.size() > max_returns || scan.return_count == 0 ||
+        scan.return_count > scan.ranges_m.size() ||
+        std::abs(scan.angle_step_rad * static_cast<double>(scan.ranges_m.size()) - 2.0 * pi) >
+            1e-9) {
         return false;
     }
     if (header.sample_tick == scan_tick_ && scan_tick_ != 0) {
@@ -114,7 +145,7 @@ bool Navigator::observe(const sensors::LidarScan &scan) {
     }
     if (header.sample_tick <= scan_tick_ ||
         !std::ranges::all_of(scan.ranges_m, [](const auto &range) {
-            return !range || (*range > 0.0 && *range <= 100.0);
+            return !range || (*range >= 0.0 && *range <= 50.0);
         })) {
         return false;
     }
@@ -136,6 +167,7 @@ bool Navigator::observe(const sensors::LidarScan &scan) {
             const auto samples = static_cast<double>(count);
             const Point center{sum.x_m / samples, sum.y_m / samples};
             Point velocity{};
+            bool confirmed = false;
             double best = 0.15 + 2.0 * seconds;
             for (const auto &previous : detections_) {
                 const double offset = distance(previous.position, center);
@@ -146,9 +178,12 @@ bool Navigator::observe(const sensors::LidarScan &scan) {
                                    ? Point{(center.x_m - previous.position.x_m) / seconds,
                                            (center.y_m - previous.position.y_m) / seconds}
                                    : Point{};
+                    confirmed = velocity.x_m * previous.velocity.x_m +
+                                    velocity.y_m * previous.velocity.y_m >=
+                                0.15 * 0.15;
                 }
             }
-            found.push_back({center, velocity});
+            found.push_back({center, velocity, confirmed});
         }
         first.reset();
         count = 0;
@@ -204,10 +239,10 @@ bool Navigator::blocked(robot::Pose pose, double speed, bool &moving) const noex
                std::abs(dy * c - dx * s) <= width + margin;
     };
     for (const auto &detection : detections_) {
-        if (detection.velocity.x_m == 0.0 && detection.velocity.y_m == 0.0) {
+        if (!detection.confirmed) {
             continue;
         }
-        for (const double seconds : {0.0, 0.15, 0.30, 0.45, 0.60}) {
+        for (const double seconds : {0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90}) {
             if (in_corridor({detection.position.x_m + seconds * detection.velocity.x_m,
                              detection.position.y_m + seconds * detection.velocity.y_m},
                             0.20)) {
@@ -247,8 +282,17 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
         waypoint_since_ = tick;
         if (final) {
             if (returning_) {
-                return stop(State::finished,
-                            settings_.dock ? Reason::dock_unreachable : Reason::home_reached);
+                if (!settings_.dock || telemetry.docked) {
+                    return stop(State::finished, telemetry.docked && settings_.dock
+                                                     ? Reason::docked
+                                                     : Reason::home_reached);
+                }
+                if (dock_arrival_ == 0) {
+                    dock_arrival_ = tick;
+                }
+                return tick - dock_arrival_ >= retry_interval
+                           ? stop(State::finished, Reason::dock_unreachable)
+                           : stop(State::returning, Reason::none);
             }
             if (excluded_.size() == max_excluded) {
                 return stop(State::finished, Reason::unreachable_frontiers);
@@ -265,13 +309,13 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
     const double linear = std::abs(angle) < 0.24 ? std::min(0.55, remaining * 3.0) : 0.0;
     const double speed = std::max(std::abs(telemetry.measured.linear.value()), linear);
     bool moving = false;
-    const bool obstacle =
-        (speed > 0.01 && blocked(pose, speed, moving)) || telemetry.collision_blocked;
-    const auto projected = grid.locate({here.x_m + speed * 0.25 * std::cos(pose.heading.value()),
-                                        here.y_m + speed * 0.25 * std::sin(pose.heading.value())});
-    const bool unsafe_edge =
-        !safe_edge(*costmap_, start, target_cell) ||
-        (speed > 0.01 && (!projected || !safe_edge(*costmap_, start, *projected)));
+    const bool obstacle = (speed > 0.01 && blocked(telemetry.estimated_pose, speed, moving)) ||
+                          telemetry.collision_blocked;
+    if (obstacle) {
+        last_obstacle_tick_ = tick;
+    }
+    const bool unsafe_edge = !safe_edge(grid, *costmap_, start, target_cell) ||
+                             !safe_advance(grid, *costmap_, start, pose, speed);
     if (obstacle || unsafe_edge || tick - waypoint_since_ >= waypoint_timeout) {
         if (blocked_since_ == 0) {
             blocked_since_ = tick;
@@ -296,9 +340,11 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
             }
             route_.reset();
             blocked_since_ = 0;
-            retry_after_ = tick;
         }
         return stop(State::yielding, obstacle ? Reason::obstacle : Reason::unsafe_position);
+    }
+    if (last_obstacle_tick_ != 0 && tick - last_obstacle_tick_ < 6) {
+        return stop(State::yielding, Reason::obstacle);
     }
     blocked_since_ = 0;
     progress_.state = returning_ ? State::returning : State::exploring;
@@ -323,9 +369,13 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
         return stop(State::finished,
                     telemetry.depleted ? Reason::depleted : Reason::emergency_stop);
     }
+    if (tick <= control_tick_) {
+        return stop(State::waiting, Reason::uncertain_pose);
+    }
+    control_tick_ = tick;
     if (!estimate || !estimate->reliable || !finite(estimate->pose) ||
-        estimate->sample_tick > tick || tick - estimate->sample_tick > 2 ||
-        !std::isfinite(telemetry.measured.linear.value())) {
+        !finite(telemetry.estimated_pose) || estimate->sample_tick > tick ||
+        tick - estimate->sample_tick > 2 || !(std::abs(telemetry.measured.linear.value()) <= 5.0)) {
         return stop(State::waiting, Reason::uncertain_pose);
     }
     if (!telemetry.sensors_powered || !scan || scan->header.sample_tick > tick ||
@@ -346,7 +396,8 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
         costmap_ = Costmap::build(grid, settings_.radius, zones_);
         map_tick_ = tick;
     }
-    if (!start || !costmap_->traversable(*start)) {
+    if (!start || grid.occupancy(*start) != mapping::Occupancy::free ||
+        !costmap_->traversable(*start)) {
         if (retry_after_ == 0) {
             retry_after_ = tick;
         }
@@ -387,10 +438,19 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
         }
         route_ = goal ? plan(*costmap_, *start, *goal) : std::nullopt;
         if (!route_) {
-            return stop(State::finished, settings_.dock && returning_ ? Reason::dock_unreachable
-                                         : returning_                 ? Reason::home_unreachable
-                                                      : Reason::unreachable_frontiers);
+            if (!returning_) {
+                return stop(State::finished, Reason::unreachable_frontiers);
+            }
+            if (return_wait_since_ == 0) {
+                return_wait_since_ = tick;
+            }
+            const auto reason =
+                settings_.dock ? Reason::dock_unreachable : Reason::home_unreachable;
+            return stop(tick - return_wait_since_ < retry_interval ? State::waiting
+                                                                   : State::finished,
+                        reason);
         }
+        return_wait_since_ = 0;
         waypoint_ = route_->cells.size() > 1 ? 1 : 0;
         waypoint_since_ = tick;
         ++progress_.plans;

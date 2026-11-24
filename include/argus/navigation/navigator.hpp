@@ -57,6 +57,7 @@ class Navigator {
     struct Detection {
         Point position;
         Point velocity;
+        bool confirmed{};
     };
 
     Navigator(mapping::Spec spec, Settings settings, std::span<const NoGo> zones);
@@ -79,9 +80,13 @@ class Navigator {
     std::vector<Detection> detections_;
     std::size_t waypoint_{};
     std::uint64_t scan_tick_{};
+    std::uint64_t control_tick_{};
     std::uint64_t map_tick_{};
     std::uint64_t blocked_since_{};
+    std::uint64_t last_obstacle_tick_{};
     std::uint64_t waypoint_since_{};
+    std::uint64_t dock_arrival_{};
+    std::uint64_t return_wait_since_{};
     std::uint64_t retry_after_{};
     std::uint32_t return_retries_{};
     bool returning_{};
