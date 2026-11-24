@@ -64,6 +64,8 @@ Use `--sensor-steps N` to capture wheel odometry, LiDAR ranges and fictional RFI
 
 Use `--explore-steps N` for a bounded autonomous survey with route planning and obstacle yielding. Add `--dock-mm X Y` to configure a charging waypoint in the map frame. The probe reports its exit reason, map classification counts, and replanning activity. See the [navigation interface](docs/navigation.md) and [Phase 6 verification](docs/testing/phase-06.md).
 
+Use `argus-inventory` to import the fictional CSV or JSON catalog into SQLite and look up assigned EPCs by DPCI. The repository also stores RFID reads by mission and scan session. See the [inventory commands and formats](docs/inventory.md).
+
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
 See the [mapping and snapshot format](docs/mapping.md), [Phase 5 evidence](docs/testing/phase-05.md), [sensor models](docs/sensors.md), and [robot controls](docs/robot.md).
