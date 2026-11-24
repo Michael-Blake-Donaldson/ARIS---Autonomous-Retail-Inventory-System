@@ -61,6 +61,9 @@ class Navigator {
     [[nodiscard]] bool set_destination(Destination destination) noexcept;
     [[nodiscard]] bool request_return() noexcept;
     [[nodiscard]] Progress progress() const noexcept { return progress_; }
+    [[nodiscard]] std::span<const Cell> route() const noexcept {
+        return route_ ? std::span<const Cell>{route_->cells} : std::span<const Cell>{};
+    }
 
   private:
     struct Detection {
