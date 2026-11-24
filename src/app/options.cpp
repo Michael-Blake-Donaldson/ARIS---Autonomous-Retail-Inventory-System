@@ -57,12 +57,13 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
     }
     constexpr std::string_view drive_option = "--drive-steps";
     constexpr std::string_view sensor_option = "--sensor-steps";
+    constexpr std::string_view explore_option = "--explore-steps";
     constexpr std::uint32_t max_probe_steps = 2000;
     bool has_tick = false;
     bool has_cell = false;
     bool has_dock = false;
     while (!args.empty()) {
-        const auto option = bounded_argument(args.front(), sensor_option.size());
+        const auto option = bounded_argument(args.front(), explore_option.size());
         const bool no_probe =
             result.drive_steps == 0 && result.sensor_steps == 0 && result.map_mode == MapMode::none;
         if (option == "--map-stdin" && no_probe && source == WarehouseSource::fixture) {
@@ -92,10 +93,10 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
                 result.sensor_steps = *steps;
             }
         } else if ((option == "--map-steps" || option == "--export-map" ||
-                    option == "--explore-steps") &&
+                    option == explore_option) &&
                    no_probe) {
             const auto steps = read_decimal<std::uint32_t>(args[1]);
-            const bool explore = option == "--explore-steps";
+            const bool explore = option == explore_option;
             if (!steps || *steps == 0 || *steps > max_probe_steps) {
                 return explore ? Error::invalid_explore_steps : Error::invalid_map_steps;
             }

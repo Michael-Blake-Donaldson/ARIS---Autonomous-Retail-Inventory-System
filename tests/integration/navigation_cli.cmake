@@ -30,6 +30,7 @@ function(reject expected_status expected_reason)
 endfunction()
 
 reject(2 invalid_explore_steps --explore-steps 2001)
+reject(2 invalid_arguments --explore-steps-extra 80)
 reject(2 invalid_dock --explore-steps 80 --dock-mm 1 -1)
 reject(1 invalid_dock --explore-steps 80 --dock-mm 14000 1200)
 reject(2 invalid_arguments --explore-steps 80 --map-steps 40)
