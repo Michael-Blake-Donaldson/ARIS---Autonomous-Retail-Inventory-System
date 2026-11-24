@@ -1,5 +1,7 @@
 #include "argus/inventory/repository.hpp"
 
+#include "../storage/sqlite_policy.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -211,14 +213,20 @@ std::int64_t scalar(sqlite3 *db, const char *sql) {
     return get.integer(0);
 }
 
-void migrate(sqlite3 *db) {
+void migrate(sqlite3 *db, std::uint32_t byte_limit) {
     Transaction transaction{db};
     const auto version = scalar(db, "PRAGMA user_version");
     const auto identity = scalar(db, "PRAGMA application_id");
-    if (version == 0 && identity == 0 && scalar(db, "SELECT count(*) FROM sqlite_schema") == 0) {
-        execute(db, catalog_schema);
-    } else if (identity != application_id || version < 1 || version > schema_version) {
+    const bool fresh =
+        version == 0 && identity == 0 && scalar(db, "SELECT count(*) FROM sqlite_schema") == 0;
+    if (!fresh && (identity != application_id || version < 1 || version > schema_version)) {
         throw Error::incompatible_schema;
+    }
+    if (!storage::configure_database(db, scalar, byte_limit)) {
+        throw Error::database_failure;
+    }
+    if (fresh) {
+        execute(db, catalog_schema);
     }
     if (version < 2) {
         execute(db, evidence_schema);
@@ -280,7 +288,15 @@ void Repository::Close::operator()(sqlite3 *db) const noexcept { sqlite3_close_v
 Repository::Repository(std::unique_ptr<sqlite3, Close> db) noexcept : db_{std::move(db)} {}
 
 Result<Repository, Error> Repository::open(const std::filesystem::path &file) {
+    return open(file, storage::max_database_bytes);
+}
+
+Result<Repository, Error> Repository::open(const std::filesystem::path &file,
+                                           std::uint32_t byte_limit) {
     return checked<Repository>([&] {
+        if (byte_limit == 0 || byte_limit > storage::max_database_bytes) {
+            throw Error::invalid_data;
+        }
         const auto path = file.u8string();
         if (path.empty() || path.size() > 4096 || path.find(u8'\0') != std::u8string::npos ||
             path == u8":memory:" || path.starts_with(u8"file:")) {
@@ -301,7 +317,7 @@ Result<Repository, Error> Repository::open(const std::filesystem::path &file) {
         if (scalar(db.get(), "PRAGMA foreign_keys") != 1) {
             throw Error::database_failure;
         }
-        migrate(db.get());
+        migrate(db.get(), byte_limit);
         return Repository{std::move(db)};
     });
 }

@@ -103,4 +103,15 @@ TEST(RfidAudit, EscapesSpreadsheetFormulasAndJsonControlCharacters) {
     EXPECT_NE(csv.str().find("\"pending\",\"\",\"\""), std::string::npos);
 }
 
+TEST(RfidAudit, RejectsReportsOverExportLimitsWithoutWritingAPrefix) {
+    Report report{inventory::SessionId{7}, AuditAisle{AisleId{"SAMPLE"}}, {}, {}, {}};
+    report.visits.resize(2 * max_sites + 1);
+    std::ostringstream output;
+    EXPECT_EQ(write_report(output, report, Export::json),
+              inventory::Status{inventory::Error::too_large});
+    EXPECT_EQ(write_report(output, report, Export::csv),
+              inventory::Status{inventory::Error::too_large});
+    EXPECT_TRUE(output.str().empty());
+}
+
 } // namespace

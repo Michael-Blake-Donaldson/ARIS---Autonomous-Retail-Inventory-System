@@ -357,6 +357,9 @@ Result<Catalog, Error> parse_catalog(std::string_view bytes, Format format) {
     if (bytes.size() > import_byte_limit) {
         return Error::too_large;
     }
+    if (bytes.find('\0') != std::string_view::npos) {
+        return Error::invalid_data;
+    }
     auto parsed = format == Format::csv ? csv(bytes) : json(bytes);
     if (const auto *catalog = std::get_if<Catalog>(&parsed)) {
         if (const auto status = validate(*catalog); std::holds_alternative<Error>(status)) {

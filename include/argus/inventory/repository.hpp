@@ -58,6 +58,9 @@ inline constexpr std::size_t max_raw_evidence = 256;
 class Repository {
   public:
     [[nodiscard]] static Result<Repository, Error> open(const std::filesystem::path &file);
+    // A smaller main-database quota can be set for constrained local deployments.
+    [[nodiscard]] static Result<Repository, Error> open(const std::filesystem::path &file,
+                                                        std::uint32_t byte_limit);
     [[nodiscard]] Status insert_catalog(const Catalog &catalog);
     [[nodiscard]] Status update_product(const Product &product);
     [[nodiscard]] Status remove_product(const Dpci &id);

@@ -39,23 +39,62 @@ Json evidence_json(const std::optional<TagEvidence> &tag) {
             {"footprints", footprints(*tag)}};
 }
 
-void write_json(std::ostream &out, const Report &report) {
-    auto rows = Json::array();
-    for (const auto &row : report.rows) {
-        rows.push_back(
-            {{"epc", row.epc.value},
-             {"dpci", row.assignment ? Json(row.assignment->unit.product.value) : Json(nullptr)},
-             {"assignedAisle", row.assignment ? Json(row.assignment->aisle.value) : Json(nullptr)},
-             {"candidateAisle",
-              row.attribution.aisle ? Json(row.attribution.aisle->value) : Json(nullptr)},
-             {"score", row.attribution.score},
-             {"aisleSupported", row.attribution.supported},
-             {"finding", label(row.finding)},
-             {"rationale", rationale(row.finding)},
-             {"review", row.finding == Finding::supported ? Json(nullptr) : Json("pending")},
-             {"caseId", case_id(report, row)},
-             {"evidence", evidence_json(row.evidence)}});
+Json row_json(const Report &report, const Row &row) {
+    return {{"epc", row.epc.value},
+            {"dpci", row.assignment ? Json(row.assignment->unit.product.value) : Json(nullptr)},
+            {"assignedAisle", row.assignment ? Json(row.assignment->aisle.value) : Json(nullptr)},
+            {"candidateAisle",
+             row.attribution.aisle ? Json(row.attribution.aisle->value) : Json(nullptr)},
+            {"score", row.attribution.score},
+            {"aisleSupported", row.attribution.supported},
+            {"finding", label(row.finding)},
+            {"rationale", rationale(row.finding)},
+            {"review", row.finding == Finding::supported ? Json(nullptr) : Json("pending")},
+            {"caseId", case_id(report, row)},
+            {"evidence", evidence_json(row.evidence)}};
+}
+
+bool bounded(const Report &report) {
+    constexpr std::size_t max_label = 32;
+    if (report.rows.size() > 2 * max_tags || report.quantities.size() > max_tags ||
+        report.visits.size() > 2 * max_sites) {
+        return false;
     }
+    std::size_t views = 0;
+    for (const auto &row : report.rows) {
+        if (row.epc.value.size() > max_label ||
+            (row.assignment && (row.assignment->unit.product.value.size() > max_label ||
+                                row.assignment->aisle.value.size() > max_label)) ||
+            (row.attribution.aisle && row.attribution.aisle->value.size() > max_label)) {
+            return false;
+        }
+        if (row.evidence) {
+            const auto count = row.evidence->views.size();
+            if (count > 2 * max_sites || count > max_reads - views) {
+                return false;
+            }
+            views += count;
+        }
+    }
+    if (const auto *find = std::get_if<FindItem>(&report.request)) {
+        if (find->product.value.size() > max_label ||
+            (find->last_known && find->last_known->value.size() > max_label)) {
+            return false;
+        }
+    } else if (std::get<AuditAisle>(report.request).aisle.value.size() > max_label) {
+        return false;
+    }
+    return std::ranges::all_of(report.visits,
+                               [](const Visit &visit) {
+                                   return visit.aisle.value.size() <= max_label &&
+                                          visit.outcome.size() <= max_label && visit.pass < 2;
+                               }) &&
+           std::ranges::all_of(report.quantities, [](const Quantity &quantity) {
+               return quantity.product.value.size() <= max_label;
+           });
+}
+
+void write_json(std::ostream &out, const Report &report) {
     auto visits = Json::array();
     for (const auto &visit : report.visits) {
         visits.push_back({{"aisle", visit.aisle.value},
@@ -95,9 +134,19 @@ void write_json(std::ostream &out, const Report &report) {
                       {"resolvedAfterSearch", report.resolved},
                       {"simulatedTicks", report.motion_ticks},
                       {"visits", std::move(visits)},
-                      {"quantities", std::move(quantities)},
-                      {"items", std::move(rows)}};
-    out << output.dump(-1, ' ', true) << '\n';
+                      {"quantities", std::move(quantities)}};
+    auto summary = output.dump(-1, ' ', true);
+    summary.pop_back();
+    out << summary << ",\"items\":[";
+    const char *separator = "";
+    for (const auto &row : report.rows) {
+        if (!out) {
+            return;
+        }
+        out << separator << row_json(report, row).dump(-1, ' ', true);
+        separator = ",";
+    }
+    out << "]}\n";
 }
 
 void write_csv(std::ostream &out, const Report &report) {
@@ -157,6 +206,9 @@ std::string csv_field(std::string_view value) {
 }
 
 inventory::Status write_report(std::ostream &out, const Report &report, Export format) {
+    if (!bounded(report)) {
+        return inventory::Error::too_large;
+    }
     if (format == Export::json) {
         write_json(out, report);
     } else if (format == Export::csv) {

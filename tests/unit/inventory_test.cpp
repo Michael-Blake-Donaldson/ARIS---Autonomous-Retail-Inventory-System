@@ -112,6 +112,12 @@ TEST(CatalogImport, ReadsQuotedCsvAndUtf8JsonWithStrictIdentifiers) {
     EXPECT_FALSE(valid(Epc{"a00000000000000000000001"}));
 }
 
+TEST(CatalogImport, RejectsNulAndAnythingAfterIt) {
+    std::string suffixed{json};
+    suffixed.append("\0ignored", 8);
+    EXPECT_EQ(std::get<Error>(parse_catalog(suffixed, Format::json)), Error::invalid_data);
+}
+
 TEST(CatalogImport, RejectsMalformedCorpusAndEnforcesResourceBounds) {
     constexpr std::array<std::string_view, 8> bad_csv{
         "",
@@ -410,6 +416,51 @@ TEST(InventoryRepository, MigratesVersionOneAtomicallyAndRejectsForeignOrFutureD
     sql(foreign.get(), "CREATE TABLE someone_elses_data (id INTEGER)");
     EXPECT_EQ(std::get<Error>(Repository::open(foreign_path)), Error::incompatible_schema);
     EXPECT_EQ(scalar(foreign.get(), "PRAGMA user_version"), 0);
+}
+
+TEST(InventoryRepository, StorageQuotaRollsBackEveryCatalogRowOnSqliteFull) {
+    Folder folder;
+    const auto file = folder.path / "quota.db";
+    auto repo = std::get<Repository>(Repository::open(file, 128 * 1024));
+    Catalog large;
+    const auto seed = catalog();
+    large.products = seed.products;
+    large.bins = seed.bins;
+    for (std::size_t n = 1; n <= import_record_limit - 2; ++n) {
+        const auto suffix = std::to_string(n);
+        large.units.push_back(
+            {Epc{std::string(24 - suffix.size(), '0') + suffix}, shirt, first_bin});
+    }
+    ASSERT_EQ(validate(large), Status{std::monostate{}});
+    EXPECT_EQ(repo.insert_catalog(large), Status{Error::database_failure});
+    const auto raw = raw_db(file);
+    EXPECT_EQ(scalar(raw.get(), "SELECT count(*) FROM products"), 0);
+    EXPECT_EQ(scalar(raw.get(), "SELECT count(*) FROM bins"), 0);
+    EXPECT_EQ(scalar(raw.get(), "SELECT count(*) FROM units"), 0);
+    EXPECT_EQ(repo.insert_catalog(seed), Status{std::monostate{}});
+}
+
+TEST(InventoryRepository, RejectsDamagedPagesAndUnexpectedSchemaPrograms) {
+    Folder folder;
+    const auto file = folder.path / "changed.db";
+    {
+        auto repo = std::get<Repository>(Repository::open(file));
+        ASSERT_EQ(repo.insert_catalog(catalog()), Status{std::monostate{}});
+    }
+    {
+        const auto raw = raw_db(file);
+        sql(raw.get(), "CREATE VIEW unexpected AS SELECT id FROM bins");
+        auto rejected = Repository::open(file);
+        ASSERT_TRUE(std::holds_alternative<Error>(rejected));
+        EXPECT_EQ(std::get<Error>(rejected), Error::database_failure);
+        sql(raw.get(), "DROP VIEW unexpected");
+    }
+    const auto original_size = fs::file_size(file);
+    fs::resize_file(file, original_size - 512);
+    auto rejected = Repository::open(file);
+    ASSERT_TRUE(std::holds_alternative<Error>(rejected));
+    EXPECT_EQ(std::get<Error>(rejected), Error::database_failure);
+    EXPECT_EQ(fs::file_size(file), original_size - 512);
 }
 
 } // namespace

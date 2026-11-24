@@ -1,6 +1,7 @@
 #include "argus/mission/store.hpp"
 
 #include <array>
+#include <barrier>
 #include <chrono>
 #include <future>
 #include <gtest/gtest.h>
@@ -166,6 +167,40 @@ TEST(MissionStore, WorkerYieldsToQueuedPriorityBeforeIssuingAnotherWorkCommand) 
     EXPECT_EQ(halted.record.state, State::paused);
     EXPECT_EQ(halted.record.cause, Cause::preempted);
     EXPECT_EQ(std::get<std::optional<Record>>(store.dispatch())->intent.id, MissionId{2});
+}
+
+TEST(MissionStore, ConcurrentCancellationAndCheckpointHaveOneSerializableOutcome) {
+    Database db;
+    auto coordinator = std::get<Store>(Store::open(db.file()));
+    auto scanner = std::get<Store>(Store::open(db.file()));
+    constexpr Checkpoint evidence{.sample = 1,
+                                  .elapsed_ms = 50,
+                                  .planned_scans = 1,
+                                  .covered_scans = 1,
+                                  .raw_reads = 12,
+                                  .covered_mask = 1};
+    for (std::uint64_t i = 1; i <= 64; ++i) {
+        const auto lease = start(coordinator, scan(i)).lease();
+        std::barrier gate{2};
+        Result<Record, Error> checkpoint{Error::storage};
+        {
+            const std::jthread worker{[&] {
+                gate.arrive_and_wait();
+                checkpoint = scanner.checkpoint(lease, evidence);
+            }};
+            gate.arrive_and_wait();
+            ASSERT_EQ(std::get<Record>(coordinator.cancel(lease.id)).state, State::cancelled);
+        }
+        const auto final = std::get<Record>(coordinator.get(lease.id));
+        EXPECT_EQ(final.state, State::cancelled);
+        if (const auto *error = std::get_if<Error>(&checkpoint)) {
+            EXPECT_EQ(*error, Error::stale);
+            EXPECT_EQ(final.checkpoint.raw_reads, 0U);
+        } else {
+            EXPECT_EQ(final.checkpoint.raw_reads, evidence.raw_reads);
+        }
+        EXPECT_EQ(std::get<Error>(scanner.checkpoint(lease, evidence)), Error::stale);
+    }
 }
 
 TEST(MissionStore, ReservePreemptsWorkBeforeTheBatterySignal) {

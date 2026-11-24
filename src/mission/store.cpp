@@ -1,5 +1,7 @@
 #include "argus/mission/store.hpp"
 
+#include "../storage/sqlite_policy.hpp"
+
 #include <limits>
 #include <sqlite3.h>
 #include <utility>
@@ -280,11 +282,14 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         Transaction transaction{db.get()};
         const auto version = scalar(db.get(), "PRAGMA user_version");
         const auto owner = scalar(db.get(), "PRAGMA application_id");
-        if (version == 0 && owner == 0 &&
-            scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0) {
-            exec(db.get(), schema);
-        } else if (version != 1 || owner != identity) {
+        const bool fresh = version == 0 && owner == 0 &&
+                           scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0;
+        if ((!fresh && (version != 1 || owner != identity)) ||
+            !storage::configure_database(db.get(), scalar, storage::max_database_bytes)) {
             throw Error::storage;
+        }
+        if (fresh) {
+            exec(db.get(), schema);
         }
         transaction.commit();
         return Store{std::move(db)};
