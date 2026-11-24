@@ -52,19 +52,35 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
         result.fixture = name;
         args = args.subspan(1);
     }
-    if (args.empty()) {
-        return result;
-    }
-    constexpr std::string_view tick_option = "--tick";
-    if (source == WarehouseSource::export_fixture || args.size() != 2 ||
-        bounded_argument(args.front(), tick_option.size()) != tick_option) {
+    if (source == WarehouseSource::export_fixture && !args.empty()) {
         return Error::invalid_arguments;
     }
-    const auto tick = read_decimal<std::uint64_t>(args.back());
-    if (!tick) {
-        return Error::invalid_tick;
+    constexpr std::string_view drive_option = "--drive-steps";
+    bool has_tick = false;
+    while (!args.empty()) {
+        if (args.size() < 2) {
+            return Error::invalid_arguments;
+        }
+        const auto option = bounded_argument(args.front(), drive_option.size());
+        if (option == "--tick" && !has_tick) {
+            const auto tick = read_decimal<std::uint64_t>(args[1]);
+            if (!tick) {
+                return Error::invalid_tick;
+            }
+            result.tick = *tick;
+            has_tick = true;
+        } else if (option == drive_option && result.drive_steps == 0) {
+            constexpr std::uint32_t max_drive_steps = 2000;
+            const auto steps = read_decimal<std::uint32_t>(args[1]);
+            if (!steps || *steps == 0 || *steps > max_drive_steps) {
+                return Error::invalid_drive_steps;
+            }
+            result.drive_steps = *steps;
+        } else {
+            return Error::invalid_arguments;
+        }
+        args = args.subspan(2);
     }
-    result.tick = *tick;
     return result;
 }
 
@@ -75,7 +91,7 @@ Result<Options, Error> parse_options(std::span<const char *const> arguments) noe
     if (arguments.empty()) {
         return Options{};
     }
-    if (arguments.size() > 4) {
+    if (arguments.size() > 6) {
         return Error::invalid_arguments;
     }
     const auto option = bounded_argument(arguments.front(), export_option.size());

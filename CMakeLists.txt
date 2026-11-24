@@ -44,7 +44,7 @@ find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC src/app/application.cpp src/app/options.cpp src/app/warehouse_io.cpp)
 target_include_directories(argus_app PUBLIC src/app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(argus_app PUBLIC argus_core argus_world PRIVATE spdlog::spdlog)
+target_link_libraries(argus_app PUBLIC argus_core argus_world argus_robot PRIVATE spdlog::spdlog)
 argus_project_target(argus_app)
 
 add_executable(argus-headless apps/argus-headless/main.cpp)
@@ -83,6 +83,10 @@ if(BUILD_TESTING)
         "-DARGUS_FIXTURE_DIR=${ARGUS_FIXTURE_DIR}"
         "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/warehouse-cli-tests"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/warehouse_cli.cmake"
+    )
+    add_test(NAME argus-headless.robot COMMAND "${CMAKE_COMMAND}"
+        "-DARGUS_EXECUTABLE=$<TARGET_FILE:argus-headless>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/robot_cli.cmake"
     )
     if(TARGET argus-desktop)
         argus_cli_smoke(argus-desktop)

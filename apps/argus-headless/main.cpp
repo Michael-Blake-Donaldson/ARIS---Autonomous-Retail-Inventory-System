@@ -1,12 +1,32 @@
 #include "application.hpp"
 #include "argus/core/random.hpp"
+#include "robot_run.hpp"
 #include "warehouse_io.hpp"
 
+#include <iomanip>
 #include <iostream>
 
 namespace {
 
-void write_snapshot(const argus::world::Snapshot &snapshot) {
+void write_robot(const argus::robot::Telemetry &read) {
+    const auto &pose = read.estimated_pose;
+    std::cout << std::fixed << std::setprecision(6) << std::boolalpha
+              << ",\"robot\":{\"odometry\":{\"xM\":" << pose.x.value()
+              << ",\"yM\":" << pose.y.value() << ",\"headingRad\":" << pose.heading.value()
+              << "},\"commandedMps\":" << read.commanded.linear.value()
+              << ",\"commandedRadps\":" << read.commanded.angular.value()
+              << ",\"measuredMps\":" << read.measured.linear.value()
+              << ",\"measuredRadps\":" << read.measured.angular.value()
+              << ",\"energyUj\":" << read.energy_uj << ",\"capacityUj\":" << read.capacity_uj
+              << ",\"lowBattery\":" << read.low_battery << ",\"depleted\":" << read.depleted
+              << ",\"docked\":" << read.docked << ",\"charging\":" << read.charging
+              << ",\"emergencyLatched\":" << read.emergency_latched
+              << ",\"collisionBlocked\":" << read.collision_blocked
+              << ",\"worldHeld\":" << read.world_held << '}';
+}
+
+void write_snapshot(const argus::world::Snapshot &snapshot,
+                    const argus::robot::Telemetry *robot = nullptr) {
     std::cout << "{\"scenarioId\":" << snapshot.scenario_id.value() << ",\"seed\":" << snapshot.seed
               << ",\"tick\":" << snapshot.tick << ",\"sizeMm\":[" << snapshot.floor.max.x << ','
               << snapshot.floor.max.y << "],\"fixtureCount\":" << snapshot.solids.size()
@@ -19,11 +39,17 @@ void write_snapshot(const argus::world::Snapshot &snapshot) {
                   << bounds.max.y - bounds.min.y << "]}";
         separator = ",";
     }
-    std::cout << "]}\n";
+    std::cout << ']';
+    if (robot != nullptr) {
+        write_robot(*robot);
+    }
+    std::cout << "}\n";
 }
 
 argus::app::Status run_headless(const argus::app::Options &options) {
     using argus::app::WarehouseSource;
+    using argus::simulation::RobotError;
+    using argus::simulation::RobotSimulation;
     using argus::simulation::ScenarioError;
     using argus::simulation::Warehouse;
     if (options.warehouse_source == WarehouseSource::export_fixture) {
@@ -37,7 +63,19 @@ argus::app::Status run_headless(const argus::app::Options &options) {
         if (const auto *error = std::get_if<ScenarioError>(&loaded)) {
             return *error;
         }
-        write_snapshot(std::get<Warehouse>(loaded).snapshot(options.tick));
+        const auto &warehouse = std::get<Warehouse>(loaded);
+        if (options.drive_steps == 0) {
+            write_snapshot(warehouse.snapshot(options.tick));
+        } else {
+            auto created = RobotSimulation::create(warehouse, options.tick);
+            if (const auto *error = std::get_if<RobotError>(&created)) {
+                return *error;
+            }
+            auto &robot = std::get<RobotSimulation>(created);
+            argus::app::run_drive_probe(robot, options.drive_steps);
+            const auto telemetry = robot.telemetry();
+            write_snapshot(warehouse.snapshot(telemetry.world_tick), &telemetry);
+        }
     }
     if (!std::cout.flush()) {
         return argus::app::Error::output_failure;

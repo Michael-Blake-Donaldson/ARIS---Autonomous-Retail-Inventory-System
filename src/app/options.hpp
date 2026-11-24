@@ -15,6 +15,7 @@ enum class Error {
     invalid_arguments,
     invalid_seed,
     invalid_tick,
+    invalid_drive_steps,
     video_initialization,
     window_creation,
     graphics_context,
@@ -29,6 +30,7 @@ struct Options {
     WarehouseSource warehouse_source{WarehouseSource::none};
     std::string_view fixture{};
     std::uint64_t tick{};
+    std::uint32_t drive_steps{};
 };
 
 // Accepts NUL-terminated process arguments after argv[0]. Options can borrow a fixture argument.

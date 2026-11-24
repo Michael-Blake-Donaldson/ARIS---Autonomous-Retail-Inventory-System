@@ -86,4 +86,19 @@ TEST(Options, RejectsInvalidWarehouseFlagsAndTicks) {
               Error::invalid_arguments);
 }
 
+TEST(Options, BoundsDriveProbeAndRejectsRepeatedOptions) {
+    const auto options = std::get<Options>(parse_options(
+        std::array{"--warehouse", "small-backroom", "--drive-steps", "2000", "--tick", "9"}));
+    EXPECT_EQ(options.drive_steps, 2000U);
+    EXPECT_EQ(options.tick, 9U);
+    for (const char *value : {"0", "2001", "4294967296", "-1"}) {
+        EXPECT_EQ(
+            std::get<Error>(parse_options(std::array{"--scenario-stdin", "--drive-steps", value})),
+            Error::invalid_drive_steps);
+    }
+    EXPECT_EQ(std::get<Error>(
+                  parse_options(std::array{"--scenario-stdin", "--tick", "0", "--tick", "1"})),
+              Error::invalid_arguments);
+}
+
 } // namespace

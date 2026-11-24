@@ -27,6 +27,8 @@ std::string_view error_code(Error error) noexcept {
         return "invalid_seed";
     case Error::invalid_tick:
         return "invalid_tick";
+    case Error::invalid_drive_steps:
+        return "invalid_drive_steps";
     case Error::video_initialization:
         return "video_initialization";
     case Error::window_creation:
@@ -45,6 +47,16 @@ std::string_view error_code(Error error) noexcept {
 
 std::string_view error_code(simulation::ScenarioError error) noexcept {
     return simulation::scenario_error_code(error);
+}
+
+std::string_view error_code(simulation::RobotError error) noexcept {
+    switch (error) {
+    case simulation::RobotError::invalid_configuration:
+        return "invalid_robot_configuration";
+    case simulation::RobotError::invalid_spawn:
+        return "invalid_robot_spawn";
+    }
+    return "unknown_robot_error";
 }
 
 } // namespace
@@ -66,7 +78,8 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
         case Action::help:
             std::cout << "Usage: " << name
                       << " [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64]"
-                         " | --scenario-stdin [--tick UINT64] | --export-warehouse NAME]\n";
+                         " [--drive-steps N] | --scenario-stdin [--tick UINT64] [--drive-steps N]"
+                         " | --export-warehouse NAME]\n";
             break;
         case Action::version:
             std::cout << "ARGUS " << version << '\n';
