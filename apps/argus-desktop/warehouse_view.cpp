@@ -91,10 +91,33 @@ void draw_robot(robot::Pose pose, std::int32_t radius, Color marker, bool outlin
     glEnd();
 }
 
+void draw_lidar(const sensors::LidarScan &scan) {
+    constexpr double mm_per_m = 1000.0;
+    const auto &pose = scan.header.estimated_pose;
+    const auto x = pose.x.value() * mm_per_m;
+    const auto y = pose.y.value() * mm_per_m;
+    auto angle = pose.heading.value() + scan.first_angle_rad;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4ub(111, 231, 251, 56);
+    glBegin(GL_LINES);
+    for (const auto &range : scan.ranges_m) {
+        if (range) {
+            const auto distance = *range * mm_per_m;
+            glVertex2d(x, y);
+            glVertex2d(x + distance * std::cos(angle), y + distance * std::sin(angle));
+        }
+        angle += scan.angle_step_rad;
+    }
+    glEnd();
+    glDisable(GL_BLEND);
+}
+
 } // namespace
 
 void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
-                    std::optional<robot::Pose> truth_overlay, int width, int height) {
+                    std::optional<robot::Pose> truth_overlay, const sensors::LidarScan *lidar,
+                    int width, int height) {
     const auto aspect = static_cast<double>(width) / static_cast<double>(height);
     const auto half_width = static_cast<double>(view.floor.max.x) / 2.0;
     const auto half_height = static_cast<double>(view.floor.max.y) / 2.0;
@@ -118,6 +141,9 @@ void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
     }
     for (const auto &solid : view.solids) {
         draw_rect(solid.bounds, solid_color(solid.kind));
+    }
+    if (lidar != nullptr) {
+        draw_lidar(*lidar);
     }
     for (const auto &actor : view.actors) {
         draw_rect(actor.bounds, actor_color(actor.kind));

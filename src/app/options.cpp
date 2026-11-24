@@ -56,12 +56,14 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
         return Error::invalid_arguments;
     }
     constexpr std::string_view drive_option = "--drive-steps";
+    constexpr std::string_view sensor_option = "--sensor-steps";
+    constexpr std::uint32_t max_probe_steps = 2000;
     bool has_tick = false;
     while (!args.empty()) {
         if (args.size() < 2) {
             return Error::invalid_arguments;
         }
-        const auto option = bounded_argument(args.front(), drive_option.size());
+        const auto option = bounded_argument(args.front(), sensor_option.size());
         if (option == "--tick" && !has_tick) {
             const auto tick = read_decimal<std::uint64_t>(args[1]);
             if (!tick) {
@@ -69,13 +71,18 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
             }
             result.tick = *tick;
             has_tick = true;
-        } else if (option == drive_option && result.drive_steps == 0) {
-            constexpr std::uint32_t max_drive_steps = 2000;
+        } else if ((option == drive_option || option == sensor_option) && result.drive_steps == 0 &&
+                   result.sensor_steps == 0) {
             const auto steps = read_decimal<std::uint32_t>(args[1]);
-            if (!steps || *steps == 0 || *steps > max_drive_steps) {
-                return Error::invalid_drive_steps;
+            if (!steps || *steps == 0 || *steps > max_probe_steps) {
+                return option == drive_option ? Error::invalid_drive_steps
+                                              : Error::invalid_sensor_steps;
             }
-            result.drive_steps = *steps;
+            if (option == drive_option) {
+                result.drive_steps = *steps;
+            } else {
+                result.sensor_steps = *steps;
+            }
         } else {
             return Error::invalid_arguments;
         }

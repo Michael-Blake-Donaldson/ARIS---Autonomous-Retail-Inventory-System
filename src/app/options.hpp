@@ -16,6 +16,7 @@ enum class Error {
     invalid_seed,
     invalid_tick,
     invalid_drive_steps,
+    invalid_sensor_steps,
     video_initialization,
     window_creation,
     graphics_context,
@@ -31,6 +32,7 @@ struct Options {
     std::string_view fixture{};
     std::uint64_t tick{};
     std::uint32_t drive_steps{};
+    std::uint32_t sensor_steps{};
 };
 
 // Accepts NUL-terminated process arguments after argv[0]. Options can borrow a fixture argument.

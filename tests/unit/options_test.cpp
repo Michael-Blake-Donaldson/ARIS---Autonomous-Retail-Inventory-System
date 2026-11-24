@@ -101,4 +101,17 @@ TEST(Options, BoundsDriveProbeAndRejectsRepeatedOptions) {
               Error::invalid_arguments);
 }
 
+TEST(Options, ChoosesOneBoundedSensorOrDriveProbe) {
+    const auto selected = std::get<Options>(parse_options(
+        std::array{"--warehouse", "small-backroom", "--sensor-steps", "2000", "--tick", "4"}));
+    EXPECT_EQ(selected.sensor_steps, 2000U);
+    EXPECT_EQ(selected.drive_steps, 0U);
+    EXPECT_EQ(selected.tick, 4U);
+    EXPECT_EQ(std::get<Error>(parse_options(std::array{"--scenario-stdin", "--sensor-steps", "0"})),
+              Error::invalid_sensor_steps);
+    EXPECT_EQ(std::get<Error>(parse_options(
+                  std::array{"--scenario-stdin", "--sensor-steps", "5", "--drive-steps", "5"})),
+              Error::invalid_arguments);
+}
+
 } // namespace

@@ -20,7 +20,9 @@ namespace {
 using argus::app::Error;
 using argus::robot::Command;
 using argus::robot::Telemetry;
+using argus::sensors::LidarScan;
 using argus::simulation::RobotSimulation;
+using argus::simulation::SensorRig;
 
 constexpr std::string_view preview_title = "ARGUS Robot Preview";
 
@@ -81,6 +83,12 @@ class Controls {
                 return true;
             }
             break;
+        case SDL_SCANCODE_F4:
+            if (fresh) {
+                lidar_ = !lidar_;
+                return true;
+            }
+            break;
         default:
             break;
         }
@@ -110,6 +118,7 @@ class Controls {
     }
 
     [[nodiscard]] bool show_truth() const noexcept { return truth_; }
+    [[nodiscard]] bool show_lidar() const noexcept { return lidar_; }
     [[nodiscard]] bool restart_requested() noexcept {
         return std::exchange(restart_, false) && !emergency_;
     }
@@ -124,9 +133,23 @@ class Controls {
     bool reset_stop_{};
     bool restart_{};
     bool truth_{};
+    bool lidar_{};
 };
 
-std::string window_title(const Telemetry &read, bool show_truth) {
+void capture_preview_sensors(SensorRig &rig, const RobotSimulation &robot,
+                             std::optional<LidarScan> &latest_lidar) {
+    rig.capture(robot);
+    while (auto sample = rig.pop()) {
+        if (auto *scan = std::get_if<LidarScan>(&*sample)) {
+            latest_lidar = std::move(*scan);
+        }
+    }
+    if (!robot.telemetry().sensors_powered) {
+        latest_lidar.reset();
+    }
+}
+
+std::string window_title(const Telemetry &read, const Controls &controls) {
     std::string title{preview_title};
     title += " | Battery " + std::to_string(read.energy_uj * 100U / read.capacity_uj) + "%";
     if (read.emergency_latched) {
@@ -144,16 +167,20 @@ std::string window_title(const Telemetry &read, bool show_truth) {
     } else {
         title += " | Space + arrows to drive";
     }
-    if (show_truth) {
+    if (controls.show_truth()) {
         title += " | TRUTH overlay";
+    }
+    if (controls.show_lidar()) {
+        title += " | LiDAR returns";
     }
     return title;
 }
 
 bool present(SDL_Window *window, const argus::world::Snapshot &view, const RobotSimulation &robot,
-             bool show_truth, std::string &last_title) {
+             const Controls &controls, const std::optional<LidarScan> &latest_lidar,
+             std::string &last_title) {
     const auto read = robot.telemetry();
-    const auto title = window_title(read, show_truth);
+    const auto title = window_title(read, controls);
     if (title != last_title) {
         if (!SDL_SetWindowTitle(window, title.c_str())) {
             return false;
@@ -169,10 +196,11 @@ bool present(SDL_Window *window, const argus::world::Snapshot &view, const Robot
         return true;
     }
     std::optional<argus::robot::Pose> truth;
-    if (show_truth) {
+    if (controls.show_truth()) {
         truth = robot.debug_truth().pose;
     }
-    argus::desktop::draw_warehouse(view, read.estimated_pose, truth, width, height);
+    const auto *lidar = controls.show_lidar() && latest_lidar ? &*latest_lidar : nullptr;
+    argus::desktop::draw_warehouse(view, read.estimated_pose, truth, lidar, width, height);
     return SDL_GL_SwapWindow(window);
 }
 
@@ -180,6 +208,7 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     using argus::app::WarehouseSource;
     using argus::simulation::RobotError;
     using argus::simulation::ScenarioError;
+    using argus::simulation::SensorError;
     using argus::simulation::Warehouse;
     if (options.warehouse_source == WarehouseSource::export_fixture) {
         return argus::app::export_warehouse(options.fixture);
@@ -189,13 +218,25 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         return *error;
     }
     const auto &warehouse = std::get<Warehouse>(loaded);
-    const auto created = RobotSimulation::create(warehouse, options.tick);
+    const auto created = RobotSimulation::create(warehouse, options.tick, {}, {},
+                                                 argus::simulation::warehouse_encoder_effects);
     if (const auto *error = std::get_if<RobotError>(&created)) {
         return *error;
     }
     const auto &initial = std::get<RobotSimulation>(created);
     auto robot = initial;
-    argus::app::run_drive_probe(robot, options.drive_steps);
+    auto sensor_setup = SensorRig::create(warehouse.snapshot(options.tick).seed);
+    if (const auto *error = std::get_if<SensorError>(&sensor_setup)) {
+        return *error;
+    }
+    const auto &initial_rig = std::get<SensorRig>(sensor_setup);
+    auto rig = initial_rig;
+    std::optional<LidarScan> latest_lidar;
+    const auto probe_steps = std::max(options.drive_steps, options.sensor_steps);
+    for (std::uint32_t step = 0; step < probe_steps; ++step) {
+        robot.step(argus::app::probe_command);
+        capture_preview_sensors(rig, robot, latest_lidar);
+    }
     const VideoSession video;
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return Error::video_initialization;
@@ -218,8 +259,8 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
     }
     Controls controls;
     std::string title;
-    if (!present(window.get(), warehouse.snapshot(robot.telemetry().world_tick), robot, false,
-                 title)) {
+    if (!present(window.get(), warehouse.snapshot(robot.telemetry().world_tick), robot, controls,
+                 latest_lidar, title)) {
         return Error::graphics_present;
     }
 
@@ -244,6 +285,8 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         const bool restarted = controls.restart_requested() && !robot.telemetry().emergency_latched;
         if (restarted) {
             robot = initial;
+            rig = initial_rig;
+            latest_lidar.reset();
             controls.disarm();
         }
 
@@ -260,12 +303,13 @@ argus::app::Status run_desktop(const argus::app::Options &options) {
         }
         for (std::uint64_t step = 0; step < std::min(due, max_catchup_steps); ++step) {
             robot.step(controls.command());
+            capture_preview_sensors(rig, robot, latest_lidar);
         }
         const bool redraw = got_event && (event.type == SDL_EVENT_WINDOW_EXPOSED ||
                                           event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED);
         if ((due > 0 || redraw || control_refresh || restarted) &&
             !present(window.get(), warehouse.snapshot(robot.telemetry().world_tick), robot,
-                     controls.show_truth(), title)) {
+                     controls, latest_lidar, title)) {
             return Error::graphics_present;
         }
     }

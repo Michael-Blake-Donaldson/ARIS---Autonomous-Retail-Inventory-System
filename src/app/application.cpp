@@ -29,6 +29,8 @@ std::string_view error_code(Error error) noexcept {
         return "invalid_tick";
     case Error::invalid_drive_steps:
         return "invalid_drive_steps";
+    case Error::invalid_sensor_steps:
+        return "invalid_sensor_steps";
     case Error::video_initialization:
         return "video_initialization";
     case Error::window_creation:
@@ -59,6 +61,14 @@ std::string_view error_code(simulation::RobotError error) noexcept {
     return "unknown_robot_error";
 }
 
+std::string_view error_code(simulation::SensorError error) noexcept {
+    switch (error) {
+    case simulation::SensorError::invalid_configuration:
+        return "invalid_sensor_configuration";
+    }
+    return "unknown_sensor_error";
+}
+
 } // namespace
 
 int run_application(int argc, char **argv, std::string_view name, Run run) noexcept {
@@ -78,7 +88,8 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
         case Action::help:
             std::cout << "Usage: " << name
                       << " [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64]"
-                         " [--drive-steps N] | --scenario-stdin [--tick UINT64] [--drive-steps N]"
+                         " [--drive-steps N | --sensor-steps N] | --scenario-stdin [--tick UINT64]"
+                         " [--drive-steps N | --sensor-steps N]"
                          " | --export-warehouse NAME]\n";
             break;
         case Action::version:
