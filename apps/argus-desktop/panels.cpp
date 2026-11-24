@@ -50,6 +50,26 @@ void title(std::string_view value) {
     ImGui::Spacing();
 }
 
+std::string_view finding_name(audit::Finding finding) noexcept {
+    switch (finding) {
+    case audit::Finding::supported:
+        return "Assigned aisle";
+    case audit::Finding::likely_misplaced:
+        return "Likely misplaced";
+    case audit::Finding::ambiguous:
+        return "Ambiguous aisle";
+    case audit::Finding::unscanned:
+        return "Unscanned";
+    case audit::Finding::insufficient_coverage:
+        return "One view, no read";
+    case audit::Finding::not_observed_after_two_views:
+        return "Two views, no read";
+    case audit::Finding::unknown_epc:
+        return "Unknown EPC";
+    }
+    return {};
+}
+
 void camera_picker(Camera &camera) {
     for (const auto &[mode, caption] :
          {std::pair{CameraMode::orbit, "Orbit"}, std::pair{CameraMode::plan, "Top-down"},
@@ -250,7 +270,9 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     ImGui::SameLine();
     quiet(status_);
     ImGui::End();
-    return canvas;
+    constexpr float toolbar_height = 102.0F;
+    return {canvas.x, canvas.y + toolbar_height, canvas.width,
+            std::max(1.0F, canvas.height - toolbar_height)};
 }
 
 void Panels::panel_contents(const LiveFrame &frame, bool focused) {
@@ -441,8 +463,24 @@ void Panels::findings() {
         while (clipper.Step()) {
             for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
                 const auto &row = report_->rows[static_cast<std::size_t>(index)];
-                ImGui::Text("%s   %s", row.epc.value.c_str() + 16,
-                            audit::label(row.finding).data());
+                text(std::string_view{row.epc.value}.substr(16));
+                ImGui::SameLine(105.0F);
+                ImGui::TextColored(row.finding == audit::Finding::supported ? teal : amber, "%s",
+                                   finding_name(row.finding).data());
+                if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 23);
+                    text(row.epc.value);
+                    text(audit::rationale(row.finding));
+                    if (row.attribution.aisle) {
+                        ImGui::Text("Candidate aisle: %s", row.attribution.aisle->value.c_str());
+                    }
+                    if (row.evidence) {
+                        ImGui::Text("%zu reads across %zu views", row.evidence->read_count,
+                                    row.evidence->views.size());
+                    }
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
             }
         }
     }
