@@ -49,7 +49,7 @@ Readiness ready() {
             .sensors_ok = true};
 }
 
-Record start(Store &store, Intent intent = scan()) {
+Record start(Store &store, const Intent &intent = scan()) {
     static_cast<void>(std::get<Record>(store.submit(intent)));
     const auto dispatched = std::get<std::optional<Record>>(store.dispatch()).value();
     return std::get<Cycle>(store.cycle(dispatched.lease(), ready())).record;
