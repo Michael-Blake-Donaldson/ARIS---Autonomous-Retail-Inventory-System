@@ -1,6 +1,6 @@
 # ARGUS
 
-ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. Drive the simulated robot in the Windows preview to build an occupancy map. The headless executable replays the same scenarios and can export and reload estimated maps.
+ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. Drive the simulated robot in the Windows preview or run autonomous exploration from the command line. The headless executable can export and reload estimated maps.
 
 ## Build and test
 
@@ -47,6 +47,7 @@ out\build\windows-debug\argus-headless.exe --warehouse broad-stockroom --tick 40
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --drive-steps 220
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --sensor-steps 36
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --map-steps 80
+out\build\windows-debug\argus-headless.exe --warehouse small-backroom --explore-steps 2000
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --export-map 80 > backroom.argmap
 out\build\windows-debug\argus-headless.exe --warehouse small-backroom --map-stdin < backroom.argmap
 out\build\windows-debug\argus-headless.exe --export-warehouse small-backroom > scenario.json
@@ -60,6 +61,8 @@ The desktop requires an interactive Windows session with OpenGL support. It defa
 Use `--drive-steps N` with a warehouse to run 1–2,000 straight-drive steps. Headless output includes odometry, commanded and measured velocities, battery and collision status. In the desktop, the same flag runs the probe before manual control begins.
 
 Use `--sensor-steps N` to capture wheel odometry, LiDAR ranges and fictional RFID reads during the drive. The output includes timestamps, estimated poses, and the queue's produced, consumed and dropped counts.
+
+Use `--explore-steps N` for a bounded autonomous survey with route planning and obstacle yielding. Add `--dock-mm X Y` to configure a charging waypoint in the map frame. The probe reports its exit reason, map classification counts, and replanning activity. See the [navigation interface](docs/navigation.md) and [Phase 6 verification](docs/testing/phase-06.md).
 
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
