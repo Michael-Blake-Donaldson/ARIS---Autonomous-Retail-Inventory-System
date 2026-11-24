@@ -10,7 +10,7 @@ namespace argus::app {
 
 enum class Action { run, help, version };
 enum class WarehouseSource { none, fixture, standard_input, export_fixture };
-enum class MapMode { none, summary, export_map, load_map };
+enum class MapMode { none, summary, export_map, load_map, explore };
 
 enum class Error {
     invalid_arguments,
@@ -19,6 +19,8 @@ enum class Error {
     invalid_drive_steps,
     invalid_sensor_steps,
     invalid_map_steps,
+    invalid_explore_steps,
+    invalid_dock,
     invalid_cell_size,
     video_initialization,
     window_creation,
@@ -39,6 +41,8 @@ struct Options {
     MapMode map_mode{};
     std::uint32_t map_steps{};
     std::uint32_t cell_mm{250};
+    std::uint32_t dock_x_mm{};
+    std::uint32_t dock_y_mm{};
 };
 
 // Accepts NUL-terminated process arguments after argv[0]. Options can borrow a fixture argument.

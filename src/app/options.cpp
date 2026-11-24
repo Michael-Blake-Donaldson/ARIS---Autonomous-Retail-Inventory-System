@@ -60,6 +60,7 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
     constexpr std::uint32_t max_probe_steps = 2000;
     bool has_tick = false;
     bool has_cell = false;
+    bool has_dock = false;
     while (!args.empty()) {
         const auto option = bounded_argument(args.front(), sensor_option.size());
         const bool no_probe =
@@ -90,13 +91,29 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
             } else {
                 result.sensor_steps = *steps;
             }
-        } else if ((option == "--map-steps" || option == "--export-map") && no_probe) {
+        } else if ((option == "--map-steps" || option == "--export-map" ||
+                    option == "--explore-steps") &&
+                   no_probe) {
             const auto steps = read_decimal<std::uint32_t>(args[1]);
+            const bool explore = option == "--explore-steps";
             if (!steps || *steps == 0 || *steps > max_probe_steps) {
-                return Error::invalid_map_steps;
+                return explore ? Error::invalid_explore_steps : Error::invalid_map_steps;
             }
-            result.map_mode = option == "--map-steps" ? MapMode::summary : MapMode::export_map;
+            result.map_mode = explore                   ? MapMode::explore
+                              : option == "--map-steps" ? MapMode::summary
+                                                        : MapMode::export_map;
             result.map_steps = *steps;
+        } else if (option == "--dock-mm" && !has_dock && args.size() >= 3) {
+            const auto x = read_decimal<std::uint32_t>(args[1]);
+            const auto y = read_decimal<std::uint32_t>(args[2]);
+            if (!x || !y || *x == 0 || *y == 0) {
+                return Error::invalid_dock;
+            }
+            result.dock_x_mm = *x;
+            result.dock_y_mm = *y;
+            has_dock = true;
+            args = args.subspan(3);
+            continue;
         } else if (option == "--cell-mm" && !has_cell) {
             const auto size = read_decimal<std::uint32_t>(args[1]);
             if (!size || *size < 50 || *size > 2000) {
@@ -109,7 +126,8 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
         }
         args = args.subspan(2);
     }
-    if ((has_cell && result.map_mode == MapMode::none) ||
+    if ((has_dock && result.map_mode != MapMode::explore) ||
+        (has_cell && result.map_mode == MapMode::none) ||
         (has_tick && result.map_mode == MapMode::load_map)) {
         return Error::invalid_arguments;
     }
@@ -123,7 +141,7 @@ Result<Options, Error> parse_options(std::span<const char *const> arguments) noe
     if (arguments.empty()) {
         return Options{};
     }
-    if (arguments.size() > 8) {
+    if (arguments.size() > 11) {
         return Error::invalid_arguments;
     }
     const auto option = bounded_argument(arguments.front(), export_option.size());

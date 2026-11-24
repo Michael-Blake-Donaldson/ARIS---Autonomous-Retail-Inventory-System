@@ -34,6 +34,10 @@ std::string_view error_code(Error error) noexcept {
         return "invalid_sensor_steps";
     case Error::invalid_map_steps:
         return "invalid_map_steps";
+    case Error::invalid_explore_steps:
+        return "invalid_explore_steps";
+    case Error::invalid_dock:
+        return "invalid_dock";
     case Error::invalid_cell_size:
         return "invalid_cell_size";
     case Error::video_initialization:
@@ -113,7 +117,9 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
                          " [--drive-steps N | --sensor-steps N]"
                          " | --export-warehouse NAME]\n"
                          "Mapping: --warehouse NAME [--tick UINT64] [--cell-mm N]"
-                         " (--map-steps N | --export-map N | --map-stdin)\n";
+                         " (--map-steps N | --export-map N | --map-stdin)\n"
+                         "Exploration: --warehouse NAME [--tick UINT64] [--cell-mm N]"
+                         " --explore-steps N [--dock-mm X Y]\n";
             break;
         case Action::version:
             std::cout << "ARGUS " << version << '\n';

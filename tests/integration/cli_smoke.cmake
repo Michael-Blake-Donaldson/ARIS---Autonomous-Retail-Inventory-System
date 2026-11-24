@@ -15,7 +15,7 @@ function(check_cli expected_status expected_stdout expected_stderr)
 endfunction()
 
 check_cli(0 "ARGUS ${ARGUS_VERSION}" "" --version)
-check_cli(0 "Usage: ${ARGUS_APP} [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64] [--drive-steps N | --sensor-steps N] | --scenario-stdin [--tick UINT64] [--drive-steps N | --sensor-steps N] | --export-warehouse NAME]\nMapping: --warehouse NAME [--tick UINT64] [--cell-mm N] (--map-steps N | --export-map N | --map-stdin)" "" --help)
+check_cli(0 "Usage: ${ARGUS_APP} [--help | --version | --seed UINT32 | --warehouse NAME [--tick UINT64] [--drive-steps N | --sensor-steps N] | --scenario-stdin [--tick UINT64] [--drive-steps N | --sensor-steps N] | --export-warehouse NAME]\nMapping: --warehouse NAME [--tick UINT64] [--cell-mm N] (--map-steps N | --export-map N | --map-stdin)\nExploration: --warehouse NAME [--tick UINT64] [--cell-mm N] --explore-steps N [--dock-mm X Y]" "" --help)
 check_cli(2 "" "{\"event\":\"configuration_rejected\",\"app\":\"${ARGUS_APP}\",\"code\":\"invalid_seed\"}"
     --seed 4294967296)
 check_cli(2 "" "{\"event\":\"configuration_rejected\",\"app\":\"${ARGUS_APP}\",\"code\":\"invalid_arguments\"}"

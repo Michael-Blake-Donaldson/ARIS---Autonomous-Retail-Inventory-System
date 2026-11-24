@@ -2,6 +2,7 @@
 
 #include "argus/mapping/map_io.hpp"
 #include "argus/mapping/mapper.hpp"
+#include "argus/navigation/navigator.hpp"
 #include "warehouse_io.hpp"
 
 #include <cstdio>
@@ -40,6 +41,48 @@ robot::Command survey(std::uint32_t step) {
     return {.target = {MetersPerSecond{turning ? 0.0 : 0.45},
                        robot::RadiansPerSecond{turning ? 1.2 : 0.0}},
             .deadman = true};
+}
+
+Status explore(const Options &options, const world::Snapshot &scene, mapping::Mapper &mapper,
+               simulation::RobotSimulation &robot, simulation::SensorRig &rig) {
+    navigation::Settings settings{.radius = Meters{scene.robot_radius_mm / 1000.0}};
+    if (options.dock_x_mm != 0) {
+        settings.dock = navigation::Point{options.dock_x_mm / 1000.0, options.dock_y_mm / 1000.0};
+    }
+    auto navigator = navigation::Navigator::create(mapper.grid(), settings);
+    if (!navigator) {
+        return Error::invalid_dock;
+    }
+    robot::Command command;
+    std::optional<sensors::LidarScan> scan;
+    std::uint32_t steps = 0;
+    do {
+        robot.step(command);
+        rig.capture(robot);
+        while (auto observation = rig.pop()) {
+            const auto result = mapper.ingest(*observation);
+            if (auto *lidar = std::get_if<sensors::LidarScan>(&*observation);
+                lidar && result == mapping::Update::accepted) {
+                scan = std::move(*lidar);
+            }
+        }
+        command = navigator->update(mapper, robot.telemetry(), scan ? &*scan : nullptr);
+        ++steps;
+    } while (steps < options.map_steps &&
+             navigator->progress().state != navigation::State::finished);
+    const auto progress = navigator->progress();
+    const auto counts = mapper.grid().counts();
+    std::cout << "{\"method\":\"frontier exploration\",\"state\":\""
+              << navigation::label(progress.state) << "\",\"reason\":\""
+              << (progress.state == navigation::State::finished ? navigation::label(progress.reason)
+                                                                : "step_limit")
+              << "\",\"lastDecision\":\"" << navigation::label(progress.reason)
+              << "\",\"steps\":" << steps << ",\"plans\":" << progress.plans
+              << ",\"yields\":" << progress.yields << ",\"movingYields\":" << progress.moving_yields
+              << ",\"replans\":" << progress.replans << ",\"stuck\":" << progress.stuck
+              << ",\"free\":" << counts.free << ",\"occupied\":" << counts.occupied
+              << ",\"unknown\":" << counts.unknown << "}\n";
+    return std::cout.flush() ? Status{std::monostate{}} : Status{Error::output_failure};
 }
 
 } // namespace
@@ -86,6 +129,9 @@ Status run_map(const Options &options) {
     auto &mapper = std::get<mapping::Mapper>(mapped);
     auto &robot = std::get<RobotSimulation>(created_robot);
     auto &rig = std::get<SensorRig>(sensors);
+    if (options.map_mode == MapMode::explore) {
+        return explore(options, scene, mapper, robot, rig);
+    }
     for (std::uint32_t step = 0; step < options.map_steps; ++step) {
         robot.step(survey(step));
         rig.capture(robot);
