@@ -52,8 +52,10 @@ add_library(argus_navigation STATIC src/navigation/planner.cpp src/navigation/na
 target_link_libraries(argus_navigation PUBLIC argus_mapping)
 argus_project_target(argus_navigation)
 
-add_library(argus_inventory STATIC src/inventory/catalog.cpp)
-target_link_libraries(argus_inventory PUBLIC argus_core PRIVATE nlohmann_json::nlohmann_json)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+add_library(argus_inventory STATIC src/inventory/catalog.cpp src/inventory/repository.cpp)
+target_link_libraries(argus_inventory PUBLIC argus_core
+    PRIVATE nlohmann_json::nlohmann_json unofficial::sqlite3::sqlite3)
 argus_project_target(argus_inventory)
 
 find_package(spdlog CONFIG REQUIRED)
