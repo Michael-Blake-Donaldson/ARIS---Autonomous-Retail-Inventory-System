@@ -46,6 +46,7 @@ struct Report {
 };
 
 // Uses a seeded simulation and an independently authored set of operator viewpoints.
+[[nodiscard]] std::span<const Site> demo_sites() noexcept;
 [[nodiscard]] Result<Report, inventory::Error> run_demo(inventory::Repository &repository,
                                                         const Request &request,
                                                         inventory::SessionId session,

@@ -145,6 +145,23 @@ bool Navigator::set_destination(Destination destination) noexcept {
     return true;
 }
 
+bool Navigator::request_return() noexcept {
+    if (!settings_.dock ||
+        (progress_.state == State::finished && progress_.reason != Reason::destination_reached &&
+         progress_.reason != Reason::destination_unreachable &&
+         progress_.reason != Reason::docked)) {
+        return false;
+    }
+    if (!returning_) {
+        returning_ = true;
+        route_.reset();
+        blocked_since_ = 0;
+        return_wait_since_ = 0;
+        stop(State::returning, Reason::none);
+    }
+    return true;
+}
+
 bool Navigator::observe(const sensors::LidarScan &scan) {
     const auto &header = scan.header;
     constexpr auto max_tick = std::numeric_limits<std::uint64_t>::max();

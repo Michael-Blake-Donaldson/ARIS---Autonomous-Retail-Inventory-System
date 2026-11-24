@@ -59,6 +59,7 @@ class Navigator {
     [[nodiscard]] robot::Command update(const mapping::Mapper &mapper, robot::Telemetry telemetry,
                                         const sensors::LidarScan *scan);
     [[nodiscard]] bool set_destination(Destination destination) noexcept;
+    [[nodiscard]] bool request_return() noexcept;
     [[nodiscard]] Progress progress() const noexcept { return progress_; }
 
   private:

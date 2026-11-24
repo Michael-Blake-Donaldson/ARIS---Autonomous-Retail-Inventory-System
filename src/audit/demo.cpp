@@ -334,6 +334,8 @@ void finish(Repository &repository, Scope &scope, const Evidence &evidence, Repo
 
 } // namespace
 
+std::span<const Site> demo_sites() noexcept { return sites; }
+
 Result<Report, Error> run_demo(Repository &repository, const Request &request, SessionId session,
                                bool enable_second_pass) {
     try {
