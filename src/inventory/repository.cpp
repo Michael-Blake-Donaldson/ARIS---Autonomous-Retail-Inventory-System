@@ -255,6 +255,24 @@ ScanSession read_session(sqlite3 *db, SessionId id) {
             static_cast<std::uint64_t>(get.integer(2))};
 }
 
+std::vector<StoredEvidence> read_evidence(Statement &get, std::uint64_t after_id) {
+    get.integer(2, after_id);
+    get.integer(3, page_size);
+    std::vector<StoredEvidence> result;
+    while (get.row()) {
+        result.push_back({static_cast<std::uint64_t>(get.integer(0)),
+                          SessionId{static_cast<std::uint64_t>(get.integer(1))},
+                          {Epc{get.text(2)},
+                           static_cast<std::uint64_t>(get.integer(3)),
+                           {Meters{get.real(4)}, Meters{get.real(5)}, robot::Radians{get.real(6)}},
+                           AntennaId{get.text(7)},
+                           get.real(8),
+                           get.real(9),
+                           get.blob(10)}});
+    }
+    return result;
+}
+
 } // namespace
 
 void Repository::Close::operator()(sqlite3 *db) const noexcept { sqlite3_close_v2(db); }
@@ -481,6 +499,44 @@ Status Repository::record(SessionId id, std::span<const ScanEvidence> observatio
     });
 }
 
+Status Repository::record_rfid(SessionId id, const sensors::RfidScan &scan,
+                               const AntennaId &antenna) {
+    if (scan.reads.size() > page_size) {
+        return Error::too_large;
+    }
+    const auto &header = scan.header;
+    if (header.sensor != sensors::SensorId::rfid ||
+        header.provenance != sensors::Provenance::simulated || header.sample_tick == 0 ||
+        header.sample_tick > max_sql_integer / robot::step_ms ||
+        header.timestamp_ms != header.sample_tick * robot::step_ms || !valid_code(antenna.value)) {
+        return Error::invalid_data;
+    }
+    if (scan.reads.empty()) {
+        const auto existing = session(id);
+        if (const auto *error = std::get_if<Error>(&existing)) {
+            return *error;
+        }
+        return header.timestamp_ms < std::get<ScanSession>(existing).started_ms
+                   ? Status{Error::invalid_data}
+                   : Status{std::monostate{}};
+    }
+    std::vector<ScanEvidence> readings;
+    readings.reserve(scan.reads.size());
+    for (const auto &item : scan.reads) {
+        if (item.epc.size() != 24) {
+            return Error::invalid_data;
+        }
+        readings.push_back({Epc{item.epc},
+                            header.timestamp_ms,
+                            header.estimated_pose,
+                            antenna,
+                            0.0,
+                            item.signal_dbm,
+                            {}});
+    }
+    return record(id, readings);
+}
+
 Result<std::vector<StoredEvidence>, Error> Repository::observations(SessionId id,
                                                                     std::uint64_t after_id) {
     if (!positive_id(id.value()) || after_id > max_sql_integer) {
@@ -488,26 +544,28 @@ Result<std::vector<StoredEvidence>, Error> Repository::observations(SessionId id
     }
     return checked<std::vector<StoredEvidence>>([&] {
         Statement get{db_.get(), R"sql(
-            SELECT id,epc,timestamp_ms,estimate_x_m,estimate_y_m,estimate_heading_rad,
+            SELECT id,session,epc,timestamp_ms,estimate_x_m,estimate_y_m,estimate_heading_rad,
                    antenna,confidence,signal_dbm,raw
             FROM scan_evidence WHERE session=?1 AND id>?2 ORDER BY id LIMIT ?3
         )sql"};
         get.integer(1, id.value());
-        get.integer(2, after_id);
-        get.integer(3, page_size);
-        std::vector<StoredEvidence> result;
-        while (get.row()) {
-            result.push_back(
-                {static_cast<std::uint64_t>(get.integer(0)),
-                 {Epc{get.text(1)},
-                  static_cast<std::uint64_t>(get.integer(2)),
-                  {Meters{get.real(3)}, Meters{get.real(4)}, robot::Radians{get.real(5)}},
-                  AntennaId{get.text(6)},
-                  get.real(7),
-                  get.real(8),
-                  get.blob(9)}});
-        }
-        return result;
+        return read_evidence(get, after_id);
+    });
+}
+
+Result<std::vector<StoredEvidence>, Error> Repository::observed(const Epc &epc,
+                                                                std::uint64_t after_id) {
+    if (!valid(epc) || after_id > max_sql_integer) {
+        return Error::invalid_data;
+    }
+    return checked<std::vector<StoredEvidence>>([&] {
+        Statement get{db_.get(), R"sql(
+            SELECT id,session,epc,timestamp_ms,estimate_x_m,estimate_y_m,estimate_heading_rad,
+                   antenna,confidence,signal_dbm,raw
+            FROM scan_evidence WHERE epc=?1 AND id>?2 ORDER BY id LIMIT ?3
+        )sql"};
+        get.text(1, epc.value);
+        return read_evidence(get, after_id);
     });
 }
 

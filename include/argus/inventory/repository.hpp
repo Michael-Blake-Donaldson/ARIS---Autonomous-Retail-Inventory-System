@@ -3,6 +3,7 @@
 #include "argus/core/types.hpp"
 #include "argus/inventory/catalog.hpp"
 #include "argus/robot/control.hpp"
+#include "argus/sensors/observations.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -35,6 +36,7 @@ struct ScanEvidence {
 
 struct StoredEvidence {
     std::uint64_t id;
+    SessionId session;
     ScanEvidence scan;
 };
 
@@ -62,8 +64,12 @@ class Repository {
     [[nodiscard]] Status start_session(ScanSession session);
     [[nodiscard]] Result<ScanSession, Error> session(SessionId id);
     [[nodiscard]] Status record(SessionId id, std::span<const ScanEvidence> observations);
+    [[nodiscard]] Status record_rfid(SessionId id, const sensors::RfidScan &scan,
+                                     const AntennaId &antenna);
     [[nodiscard]] Result<std::vector<StoredEvidence>, Error>
     observations(SessionId id, std::uint64_t after_id = 0);
+    [[nodiscard]] Result<std::vector<StoredEvidence>, Error> observed(const Epc &epc,
+                                                                      std::uint64_t after_id = 0);
 
   private:
     struct Close {
