@@ -1,6 +1,7 @@
 #pragma once
 
 #include "argus/robot/control.hpp"
+#include "argus/simulation/encoders.hpp"
 #include "argus/simulation/warehouse.hpp"
 
 #include <cstdint>
@@ -37,10 +38,9 @@ struct RobotTruth {
 
 class RobotSimulation final : public robot::MotionController {
   public:
-    [[nodiscard]] static Result<RobotSimulation, RobotError> create(Warehouse warehouse,
-                                                                    std::uint64_t tick = 0,
-                                                                    MotionConfig motion = {},
-                                                                    BatteryConfig battery = {});
+    [[nodiscard]] static Result<RobotSimulation, RobotError>
+    create(Warehouse warehouse, std::uint64_t tick = 0, MotionConfig motion = {},
+           BatteryConfig battery = {}, EncoderEffects encoders = {});
 
     void step(robot::Command command) noexcept override;
     [[nodiscard]] robot::Telemetry telemetry() const noexcept override { return telemetry_; }
@@ -50,7 +50,8 @@ class RobotSimulation final : public robot::MotionController {
 
   private:
     RobotSimulation(Warehouse warehouse, std::uint64_t tick, world::PointMm spawn,
-                    std::int32_t radius, MotionConfig motion, BatteryConfig battery);
+                    std::int32_t radius, MotionConfig motion, BatteryConfig battery,
+                    EncoderEffects encoders, std::uint32_t seed);
 
     void update_odometry(robot::Twist motion) noexcept;
     void update_battery(std::uint64_t draw, bool stationary, bool power_limited) noexcept;
@@ -60,10 +61,10 @@ class RobotSimulation final : public robot::MotionController {
     std::int32_t radius_mm_;
     MotionConfig motion_;
     BatteryConfig battery_;
+    Encoders encoders_;
     RobotTruth truth_;
     robot::Telemetry telemetry_;
-    double left_remainder_m_{};
-    double right_remainder_m_{};
+    friend class SensorRig;
 };
 
 } // namespace argus::simulation

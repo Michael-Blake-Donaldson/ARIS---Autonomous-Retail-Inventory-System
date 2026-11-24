@@ -28,11 +28,21 @@ struct Command {
     bool sensors_on{true};
 };
 
+struct WheelReading {
+    Meters left_delta{0.0};
+    Meters right_delta{0.0};
+    double distance_error_m{};
+    double heading_error_rad{};
+    bool operator==(const WheelReading &) const = default;
+};
+
 struct Telemetry {
     std::uint64_t world_tick{};
+    std::uint64_t sample_tick{};
     Pose estimated_pose{};
     Twist commanded{};
     Twist measured{};
+    WheelReading wheels{};
     std::uint64_t energy_uj{};
     std::uint64_t capacity_uj{};
     bool low_battery{};
@@ -43,6 +53,7 @@ struct Telemetry {
     bool invalid_command{};
     bool collision_blocked{};
     bool world_held{};
+    bool sensors_powered{};
 };
 
 // The controller exposes commanded and estimated motion only.

@@ -262,4 +262,43 @@ TEST(RobotConfiguration, RejectsNonFiniteMotionAndInconsistentBatteryLimits) {
               RobotError::invalid_configuration);
 }
 
+TEST(RobotMotion, EncoderEffectsRepeatBySeedAndExposeUncertainty) {
+    auto first = std::get<RobotSimulation>(
+        RobotSimulation::create(load(), 50, instant_motion(), {}, warehouse_encoder_effects));
+    auto replay = std::get<RobotSimulation>(
+        RobotSimulation::create(load(), 50, instant_motion(), {}, warehouse_encoder_effects));
+    auto different = std::get<RobotSimulation>(
+        RobotSimulation::create(load(replace("\"seed\":5489", "\"seed\":2137")), 50,
+                                instant_motion(), {}, warehouse_encoder_effects));
+    bool differs = false;
+    for (int step = 0; step < 80; ++step) {
+        first.step(drive(1.0, 0.2));
+        replay.step(drive(1.0, 0.2));
+        different.step(drive(1.0, 0.2));
+        EXPECT_EQ(first.telemetry().wheels, replay.telemetry().wheels);
+        differs = differs || first.telemetry().wheels != different.telemetry().wheels;
+    }
+    EXPECT_TRUE(differs);
+    EXPECT_EQ(first.telemetry().sample_tick, 80U);
+    EXPECT_EQ(first.telemetry().world_tick, 130U);
+    EXPECT_GT(first.telemetry().wheels.distance_error_m, 0.1);
+    EXPECT_GT(first.telemetry().wheels.heading_error_rad, 0.1);
+    EXPECT_NE(first.telemetry().estimated_pose.x.value(), first.debug_truth().pose.x.value());
+}
+
+TEST(RobotMotion, EncoderSlipChangesMeasurementsWithoutChangingMotion) {
+    const EncoderEffects slip{0.0, 0.0, 1.0, 0.6};
+    auto slipping =
+        std::get<RobotSimulation>(RobotSimulation::create(load(), 0, instant_motion(), {}, slip));
+    for (int step = 0; step < 20; ++step) {
+        slipping.step(drive(1.0));
+    }
+    EXPECT_NEAR(slipping.debug_truth().pose.x.value(), 26.0, 1e-9);
+    EXPECT_NEAR(slipping.telemetry().estimated_pose.x.value(), 25.4, 0.002);
+    EXPECT_GE(slipping.telemetry().wheels.distance_error_m, 0.6);
+    EXPECT_EQ(std::get<RobotError>(
+                  RobotSimulation::create(load(), 0, {}, {}, EncoderEffects{0.0, 0.0, 1.1, 0.6})),
+              RobotError::invalid_configuration);
+}
+
 } // namespace

@@ -83,32 +83,34 @@ Pose integrate(Pose pose, Twist twist) noexcept {
             Radians{std::remainder(pose.heading.value() + 2.0 * half_angle, full_turn)}};
 }
 
-double quantized(double distance, double resolution, double &remainder) noexcept {
-    const auto available = distance + remainder;
-    const auto measured = std::trunc(available / resolution) * resolution;
-    remainder = available - measured;
-    return measured;
-}
-
 } // namespace
 
 Result<RobotSimulation, RobotError> RobotSimulation::create(Warehouse warehouse, std::uint64_t tick,
                                                             MotionConfig motion,
-                                                            BatteryConfig battery) {
-    if (!valid(motion, battery)) {
+                                                            BatteryConfig battery,
+                                                            EncoderEffects encoders) {
+    if (!valid(motion, battery) || !valid_encoder_effects(encoders)) {
         return RobotError::invalid_configuration;
     }
     const auto spawn = warehouse.snapshot(tick);
     if (warehouse.collides(spawn.robot_spawn, spawn.robot_radius_mm, tick)) {
         return RobotError::invalid_spawn;
     }
-    return RobotSimulation{std::move(warehouse),  tick,   spawn.robot_spawn,
-                           spawn.robot_radius_mm, motion, battery};
+    return RobotSimulation{std::move(warehouse),
+                           tick,
+                           spawn.robot_spawn,
+                           spawn.robot_radius_mm,
+                           motion,
+                           battery,
+                           encoders,
+                           spawn.seed};
 }
 
 RobotSimulation::RobotSimulation(Warehouse warehouse, std::uint64_t tick, world::PointMm spawn,
-                                 std::int32_t radius, MotionConfig motion, BatteryConfig battery)
+                                 std::int32_t radius, MotionConfig motion, BatteryConfig battery,
+                                 EncoderEffects encoders, std::uint32_t seed)
     : warehouse_{std::move(warehouse)}, radius_mm_{radius}, motion_{motion}, battery_{battery},
+      encoders_{motion.track_m, motion.encoder_step_m, encoders, seed},
       truth_{{Meters{spawn.x / mm_per_m}, Meters{spawn.y / mm_per_m}, Radians{0.0}}, {}},
       telemetry_{.world_tick = tick,
                  .estimated_pose = truth_.pose,
@@ -116,7 +118,8 @@ RobotSimulation::RobotSimulation(Warehouse warehouse, std::uint64_t tick, world:
                  .capacity_uj = battery.capacity_uj,
                  .low_battery = battery.initial_uj <= battery.low_threshold_uj,
                  .depleted = battery.initial_uj == 0,
-                 .docked = warehouse_.charging_contact(point(truth_.pose), radius)} {}
+                 .docked = warehouse_.charging_contact(point(truth_.pose), radius),
+                 .sensors_powered = battery.initial_uj > 0} {}
 
 void RobotSimulation::step(robot::Command command) noexcept {
     const bool invalid = !std::isfinite(command.target.linear.value()) ||
@@ -164,13 +167,18 @@ void RobotSimulation::step(robot::Command command) noexcept {
     telemetry_.docked =
         stopped(applied) && warehouse_.charging_contact(point(truth_.pose), radius_mm_);
     update_battery(energy_draw(applied, command.sensors_on), telemetry_.docked, power_limited);
+    telemetry_.sensors_powered = command.sensors_on && !telemetry_.depleted;
+    if (telemetry_.sample_tick < std::numeric_limits<std::uint64_t>::max()) {
+        ++telemetry_.sample_tick;
+    }
 }
 
 void RobotSimulation::update_odometry(Twist motion) noexcept {
     const auto center = motion.linear.value() * step_s;
     const auto half_turn = motion.angular.value() * step_s * motion_.track_m / 2.0;
-    const auto left = quantized(center - half_turn, motion_.encoder_step_m, left_remainder_m_);
-    const auto right = quantized(center + half_turn, motion_.encoder_step_m, right_remainder_m_);
+    telemetry_.wheels = encoders_.sample(center - half_turn, center + half_turn);
+    const auto left = telemetry_.wheels.left_delta.value();
+    const auto right = telemetry_.wheels.right_delta.value();
     telemetry_.measured = {MetersPerSecond{(left + right) / (2.0 * step_s)},
                            RadiansPerSecond{(right - left) / (motion_.track_m * step_s)}};
     telemetry_.estimated_pose = integrate(telemetry_.estimated_pose, telemetry_.measured);

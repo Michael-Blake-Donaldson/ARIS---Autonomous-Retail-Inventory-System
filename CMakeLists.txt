@@ -36,7 +36,7 @@ target_include_directories(argus_world PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gene
 target_link_libraries(argus_world PUBLIC argus_core PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_world)
 
-add_library(argus_robot STATIC src/robot/robot.cpp)
+add_library(argus_robot STATIC src/robot/encoders.cpp src/robot/robot.cpp)
 target_link_libraries(argus_robot PUBLIC argus_world)
 argus_project_target(argus_robot)
 
