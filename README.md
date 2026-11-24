@@ -68,6 +68,8 @@ Use `argus-inventory` to import the fictional CSV or JSON catalog into SQLite an
 
 Use `argus-inventory DATABASE find-item DPCI SESSION` to investigate likely aisles and `argus-inventory DATABASE audit AISLE SESSION` to compare expected stock with unique observed EPCs. See the [RFID audit and review workflow](docs/audit.md).
 
+Use `argus-mission` to queue scan, search, charging, and inspection work. The SQLite journal preserves checkpoints and records preemption, cancellation, and recovery. See the [mission commands and recovery policy](docs/missions.md).
+
 The original headless RNG probe remains available as `--seed UINT32`. Seed 5489 produces `{"seed":5489,"firstSample":3499211612}`. Both executables accept standalone `--help` and `--version`, and write structured startup and error events to stderr. Exit codes are 0 on success, 2 for invalid options, and 1 for an import or runtime failure.
 
 See the [mapping and snapshot format](docs/mapping.md), [Phase 5 evidence](docs/testing/phase-05.md), [sensor models](docs/sensors.md), and [robot controls](docs/robot.md).

@@ -13,6 +13,7 @@ Supply `--dock-mm X Y` with positive east and north millimeter coordinates to co
 | `select_frontier` | Chooses a reachable free cell bordering unknown space. It ranks information gain in a 5×5 neighborhood against outbound path cost. When a return point is supplied, the available budget must cover both outbound and return paths. |
 | `Navigator::create` | Binds the navigator to the initial grid specification, a footprint, optional dock, a fixed battery margin and energy-per-meter estimate, and mission no-go rectangles. |
 | `Navigator::set_destination` | Plans a directed position and heading for a scan view. Success or an inaccessible route ends that leg. Successive legs retain the launch point and return reserve. |
+| `Navigator::request_return` | Switches directed work to the configured dock route. The navigator still checks current observations and confirms the final charging contact. |
 | `Navigator::update` | Takes the current mapper, controller telemetry, and most recent accepted full-sweep LiDAR scan. It emits a velocity command or releases the deadman. Construct a fresh navigator after resetting or reanchoring the mapper. |
 
 The default planning reserve is 250 J plus 80 J per estimated route meter. The navigator enters return mode on low battery, insufficient round-trip margin, or loss of the known route to the return position. Reaching the configured dock requires hardware-model contact confirmation. The launch-point fallback ends after the robot returns to the observed position.
