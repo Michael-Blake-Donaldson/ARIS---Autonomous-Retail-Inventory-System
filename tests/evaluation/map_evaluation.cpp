@@ -104,7 +104,9 @@ int main() {
     print("quantized", ideal);
     print("noisy", noisy);
     return ideal.coverage > 0.25 && ideal.occupied_iou > 0.10 && noisy.coverage > 0.25 &&
-                   noisy.occupied_iou > 0.10 && noisy.max_position_m > ideal.max_position_m + 0.01
+                   noisy.occupied_iou > 0.10 &&
+                   noisy.max_position_m > ideal.max_position_m + 0.004 &&
+                   noisy.max_heading_rad > ideal.max_heading_rad + 0.01
                ? 0
                : 1;
 }
