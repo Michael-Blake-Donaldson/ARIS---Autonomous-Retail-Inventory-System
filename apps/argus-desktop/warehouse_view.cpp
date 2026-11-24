@@ -66,22 +66,35 @@ void draw_rect(RectMm rect, Color color, GLenum style = GL_QUADS) {
     glEnd();
 }
 
-void draw_spawn(PointMm spawn, std::int32_t radius) {
-    constexpr Color marker{155, 242, 200};
+void draw_robot(robot::Pose pose, std::int32_t radius, Color marker, bool outline) {
+    constexpr double mm_per_m = 1000.0;
+    const auto x = pose.x.value() * mm_per_m;
+    const auto y = pose.y.value() * mm_per_m;
     constexpr int sides = 32;
     glColor3ubv(marker.data());
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex2i(spawn.x, spawn.y);
+    glBegin(outline ? GL_LINE_LOOP : GL_TRIANGLE_FAN);
+    if (!outline) {
+        glVertex2d(x, y);
+    }
     for (int side = 0; side <= sides; ++side) {
         const auto theta = 2.0 * std::numbers::pi * static_cast<double>(side) / sides;
-        glVertex2d(spawn.x + radius * std::cos(theta), spawn.y + radius * std::sin(theta));
+        glVertex2d(x + radius * std::cos(theta), y + radius * std::sin(theta));
     }
+    glEnd();
+    if (!outline) {
+        glColor3ub(25, 54, 51);
+    }
+    glBegin(GL_LINES);
+    glVertex2d(x, y);
+    glVertex2d(x + radius * 1.35 * std::cos(pose.heading.value()),
+               y + radius * 1.35 * std::sin(pose.heading.value()));
     glEnd();
 }
 
 } // namespace
 
-void draw_warehouse(const world::Snapshot &view, int width, int height) {
+void draw_warehouse(const world::Snapshot &view, robot::Pose estimated,
+                    std::optional<robot::Pose> truth_overlay, int width, int height) {
     const auto aspect = static_cast<double>(width) / static_cast<double>(height);
     const auto half_width = static_cast<double>(view.floor.max.x) / 2.0;
     const auto half_height = static_cast<double>(view.floor.max.y) / 2.0;
@@ -109,7 +122,10 @@ void draw_warehouse(const world::Snapshot &view, int width, int height) {
     for (const auto &actor : view.actors) {
         draw_rect(actor.bounds, actor_color(actor.kind));
     }
-    draw_spawn(view.robot_spawn, view.robot_radius_mm);
+    draw_robot(estimated, view.robot_radius_mm, {155, 242, 200}, false);
+    if (truth_overlay) {
+        draw_robot(*truth_overlay, view.robot_radius_mm, {110, 213, 255}, true);
+    }
     draw_rect(view.floor, {103, 130, 148}, GL_LINE_LOOP);
 }
 

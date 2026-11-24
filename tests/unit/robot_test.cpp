@@ -7,6 +7,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 namespace {
@@ -47,7 +48,8 @@ MotionConfig instant_motion() {
 
 RobotSimulation make(Warehouse warehouse = load(), MotionConfig config = {},
                      BatteryConfig battery = {}) {
-    return std::get<RobotSimulation>(RobotSimulation::create(warehouse, 0, config, battery));
+    return std::get<RobotSimulation>(
+        RobotSimulation::create(std::move(warehouse), 0, config, battery));
 }
 
 Command drive(double linear, double angular = 0.0) {
