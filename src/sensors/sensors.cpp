@@ -54,7 +54,7 @@ struct SensorRig::State {
     Random lidar_random;
     Random rfid_random;
     std::uint64_t last_sample{};
-    std::map<std::string, std::uint32_t> dwell;
+    detail::RfidDwell dwell;
     std::deque<sensors::Observation> pending;
     sensors::Throughput stats;
 };

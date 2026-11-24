@@ -39,8 +39,7 @@ double transmission(const std::vector<world::RectMm> &obstacles, world::PreciseP
 } // namespace
 
 sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sensors::Header header,
-                            const RfidConfig &config, std::map<std::string, std::uint32_t> &dwell,
-                            Random &random) {
+                            const RfidConfig &config, RfidDwell &dwell, Random &random) {
     sensors::RfidScan scan{header, {}};
     const auto heading = physical.heading.value();
     const auto cos_heading = std::cos(heading);
@@ -56,11 +55,9 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
     }
 
     const auto region = region_near(origin, config.range_m * mm_per_m);
-    const auto candidates = world.tags(region);
     const auto obstacles = world.obstacles(region, header.world_tick);
-    scan.reads.reserve(std::min(candidates.size(), static_cast<std::size_t>(config.max_reads)));
-    std::map<std::string, std::uint32_t> next_dwell;
-    for (const auto &tag : candidates) {
+    scan.reads.reserve(config.max_reads);
+    world.visit_tags(region, [&](const TagTruth &tag) {
         const auto x = static_cast<double>(tag.position.x);
         const auto y = static_cast<double>(tag.position.y);
         const auto dx = (x - origin.x) / mm_per_m;
@@ -71,15 +68,14 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
             dx == 0.0 && dy == 0.0 ? heading + config.antenna_yaw_rad : std::atan2(dy, dx);
         const auto off_axis = std::remainder(bearing - heading - config.antenna_yaw_rad, turn);
         if (distance > config.range_m || std::abs(off_axis) > config.field_of_view_rad / 2.0) {
-            continue;
+            return;
         }
 
-        const auto prior = dwell.find(tag.epc);
-        const auto exposure =
-            prior == dwell.end() ? 1U : std::min(prior->second + 1U, config.dwell_scans);
-        next_dwell.emplace(tag.epc, exposure);
-        if (exposure < config.dwell_scans) {
-            continue;
+        auto &exposure = dwell.try_emplace(tag.epc).first->second;
+        exposure.consecutive_scans = std::min(exposure.consecutive_scans + 1U, config.dwell_scans);
+        exposure.last_tick = header.sample_tick;
+        if (exposure.consecutive_scans < config.dwell_scans) {
+            return;
         }
 
         const auto angle_gain = 0.35 + 0.65 * std::max(0.0, std::cos(off_axis));
@@ -90,7 +86,7 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
         const auto walls = transmission(obstacles, origin, {x, y}, config.obstacle_transmission);
         const auto gain = angle_gain * tag_gain * walls;
         if (random.unit_interval() >= config.detection_probability * range_gain * gain) {
-            continue;
+            return;
         }
 
         const auto jitter = 2.0 * (2.0 * random.unit_interval() - 1.0);
@@ -102,8 +98,10 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
         } else {
             ++scan.truncated_reads;
         }
-    }
-    dwell.swap(next_dwell);
+    });
+    std::erase_if(dwell, [tick = header.sample_tick](const auto &entry) {
+        return entry.second.last_tick != tick;
+    });
     return scan;
 }
 

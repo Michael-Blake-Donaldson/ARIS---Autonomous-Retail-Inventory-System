@@ -13,6 +13,13 @@ struct RayInterval {
     double exit;
 };
 
+struct Exposure {
+    std::uint32_t consecutive_scans{};
+    std::uint64_t last_tick{};
+};
+
+using RfidDwell = std::map<std::string, Exposure>;
+
 [[nodiscard]] std::optional<RayInterval> ray_interval(world::RectMm rectangle,
                                                       world::PrecisePointMm origin,
                                                       world::PrecisePointMm direction) noexcept;
@@ -23,7 +30,6 @@ struct RayInterval {
                                             Random &random);
 [[nodiscard]] sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical,
                                           sensors::Header header, const RfidConfig &config,
-                                          std::map<std::string, std::uint32_t> &dwell,
-                                          Random &random);
+                                          RfidDwell &dwell, Random &random);
 
 } // namespace argus::simulation::detail

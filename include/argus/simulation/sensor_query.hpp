@@ -3,6 +3,7 @@
 #include "argus/simulation/warehouse.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@ class SensorQuery {
     [[nodiscard]] std::vector<world::RectMm> obstacles(world::RectMm region,
                                                        std::uint64_t tick) const;
     [[nodiscard]] std::vector<TagTruth> tags(world::RectMm region) const;
+    // Visits matching tags in scenario order. References are valid for the callback only.
+    void visit_tags(world::RectMm region, const std::function<void(const TagTruth &)> &visit) const;
 
   private:
     Warehouse warehouse_;

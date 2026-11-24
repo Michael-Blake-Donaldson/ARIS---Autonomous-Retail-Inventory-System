@@ -208,12 +208,17 @@ std::vector<RectMm> SensorQuery::obstacles(RectMm region, std::uint64_t tick) co
 
 std::vector<TagTruth> SensorQuery::tags(RectMm region) const {
     std::vector<TagTruth> result;
+    visit_tags(region, [&result](const TagTruth &tag) { result.push_back(tag); });
+    return result;
+}
+
+void SensorQuery::visit_tags(RectMm region,
+                             const std::function<void(const TagTruth &)> &visit) const {
     for (const auto &tag : warehouse_.state_->scenario.tags) {
         if (contains(region, {tag.position, tag.position})) {
-            result.push_back(tag);
+            visit(tag);
         }
     }
-    return result;
 }
 
 std::string_view scenario_error_code(ScenarioError error) noexcept {
