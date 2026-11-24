@@ -48,7 +48,7 @@ add_library(argus_mapping STATIC src/mapping/grid.cpp src/mapping/mapper.cpp src
 target_link_libraries(argus_mapping PUBLIC argus_core)
 argus_project_target(argus_mapping)
 
-add_library(argus_navigation STATIC src/navigation/planner.cpp)
+add_library(argus_navigation STATIC src/navigation/planner.cpp src/navigation/navigator.cpp)
 target_link_libraries(argus_navigation PUBLIC argus_mapping)
 argus_project_target(argus_navigation)
 
@@ -58,7 +58,7 @@ add_library(argus_app STATIC
     src/app/application.cpp src/app/map_run.cpp src/app/options.cpp src/app/sensor_output.cpp
     src/app/warehouse_io.cpp)
 target_include_directories(argus_app PUBLIC src/app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(argus_app PUBLIC argus_sensors argus_mapping PRIVATE spdlog::spdlog)
+target_link_libraries(argus_app PUBLIC argus_sensors argus_mapping PRIVATE argus_navigation spdlog::spdlog)
 argus_project_target(argus_app)
 
 add_executable(argus-headless apps/argus-headless/main.cpp)

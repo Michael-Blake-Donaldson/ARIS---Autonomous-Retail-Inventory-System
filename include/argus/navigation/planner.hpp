@@ -47,6 +47,7 @@ struct Frontier {
 // Costs are in A* units, ten per cardinal cell.
 [[nodiscard]] Frontier select_frontier(const mapping::Grid &grid, const Costmap &costmap,
                                        Cell start, std::uint32_t cost_budget,
-                                       std::span<const Cell> excluded = {});
+                                       std::span<const Cell> excluded = {},
+                                       std::optional<Cell> home = std::nullopt);
 
 } // namespace argus::navigation

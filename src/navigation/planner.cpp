@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <compare>
+#include <functional>
 #include <limits>
 #include <queue>
 #include <utility>
@@ -14,9 +16,7 @@ constexpr auto infinity = std::numeric_limits<std::uint32_t>::max();
 constexpr std::array<std::pair<int, int>, 8> offsets{
     {{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}}};
 
-std::uint32_t index(Cell cell, std::uint32_t columns) noexcept {
-    return cell.y * columns + cell.x;
-}
+std::uint32_t index(Cell cell, std::uint32_t columns) noexcept { return cell.y * columns + cell.x; }
 
 Cell cell_at(std::uint32_t position, std::uint32_t columns) noexcept {
     return {position % columns, position / columns};
@@ -33,8 +33,7 @@ void adjacent(Cell at, std::uint32_t columns, std::uint32_t rows, Visitor visit)
     }
 }
 
-template <typename Visitor>
-void neighbors(const Costmap &map, Cell from, Visitor visit) {
+template <typename Visitor> void neighbors(const Costmap &map, Cell from, Visitor visit) {
     adjacent(from, map.columns(), map.rows(), [&](Cell to, int dx, int dy) {
         const bool diagonal = dx != 0 && dy != 0;
         if (map.traversable(to) &&
@@ -60,7 +59,8 @@ Search search(const Costmap &map, Cell start, std::optional<Cell> goal, std::uin
     const auto columns = map.columns();
     const auto count = columns * map.rows();
     Search result{std::vector<std::uint32_t>(count, infinity),
-                  goal ? std::vector<std::uint32_t>(count, infinity) : std::vector<std::uint32_t>{}};
+                  goal ? std::vector<std::uint32_t>(count, infinity)
+                       : std::vector<std::uint32_t>{}};
     const auto start_pos = index(start, columns);
     std::priority_queue<Entry, std::vector<Entry>, std::greater<>> pending;
     pending.push({goal ? octile(start, *goal) : 0U, 0, start_pos});
@@ -120,7 +120,8 @@ std::uint32_t information(const mapping::Grid &grid, Cell cell) {
     std::uint32_t gain = 0;
     for (auto y = bottom; y <= std::min(cell.y + 2, grid.rows() - 1); ++y) {
         for (auto x = left; x <= std::min(cell.x + 2, grid.columns() - 1); ++x) {
-            gain += static_cast<std::uint32_t>(grid.occupancy({x, y}) == mapping::Occupancy::unknown);
+            gain +=
+                static_cast<std::uint32_t>(grid.occupancy({x, y}) == mapping::Occupancy::unknown);
         }
     }
     return gain;
@@ -156,9 +157,8 @@ std::optional<Costmap> Costmap::build(const mapping::Grid &grid, Meters radius_m
                 distance.at(pos) = 0;
                 sources.push(cell);
             }
-            free.at(pos) = occupancy == mapping::Occupancy::free &&
-                           point.x_m > radius && point.y_m > radius &&
-                           point.x_m + radius < spec.width_mm / 1000.0 &&
+            free.at(pos) = occupancy == mapping::Occupancy::free && point.x_m > radius &&
+                           point.y_m > radius && point.x_m + radius < spec.width_mm / 1000.0 &&
                            point.y_m + radius < spec.height_mm / 1000.0 &&
                            !std::ranges::any_of(zones, [&](const NoGo &zone) {
                                return touches_zone(point, radius + resolution / 2.0, zone);
@@ -216,14 +216,17 @@ std::optional<Route> plan(const Costmap &map, Cell start, Cell goal) {
 }
 
 Frontier select_frontier(const mapping::Grid &grid, const Costmap &costmap, Cell start,
-                         std::uint32_t budget, std::span<const Cell> excluded) {
+                         std::uint32_t budget, std::span<const Cell> excluded,
+                         std::optional<Cell> home) {
     Frontier result;
     if (grid.columns() != costmap.columns() || grid.rows() != costmap.rows() ||
-        !costmap.traversable(start)) {
+        !costmap.traversable(start) || (home && !costmap.traversable(*home))) {
         result.inaccessible = true;
         return result;
     }
     const auto found = search(costmap, start, std::nullopt, budget);
+    const auto back = home ? search(costmap, *home, std::nullopt, budget).distances
+                           : std::vector<std::uint32_t>{};
     auto best = std::numeric_limits<std::int64_t>::min();
     for (std::uint32_t y = 0; y < grid.rows(); ++y) {
         for (std::uint32_t x = 0; x < grid.columns(); ++x) {
@@ -231,14 +234,16 @@ Frontier select_frontier(const mapping::Grid &grid, const Costmap &costmap, Cell
             if (!frontier_cell(grid, candidate)) {
                 continue;
             }
-            const auto distance = found.distances.at(index(candidate, grid.columns()));
+            const auto pos = index(candidate, grid.columns());
+            const auto distance = found.distances.at(pos);
             if (distance == infinity || candidate == start ||
+                (home && back.at(pos) > budget - distance) ||
                 std::ranges::find(excluded, candidate) != excluded.end()) {
                 result.inaccessible = true;
                 continue;
             }
-            const auto score = static_cast<std::int64_t>(information(grid, candidate)) * 24 -
-                               distance;
+            const auto score =
+                static_cast<std::int64_t>(information(grid, candidate)) * 24 - distance;
             if (score > best) {
                 best = score;
                 result.goal = candidate;
