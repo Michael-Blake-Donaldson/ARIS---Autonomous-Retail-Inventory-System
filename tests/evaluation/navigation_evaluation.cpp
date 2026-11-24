@@ -181,6 +181,17 @@ int main() {
     const auto small = evaluate("small-backroom");
     const auto cluttered = evaluate("cluttered-receiving");
     const auto broad = evaluate("broad-stockroom");
+    constexpr auto stockroom = R"({
+        "schemaVersion":"1.0.0", "scenarioId":607, "seed":507, "sizeMm":[4000,3000],
+        "robot":{"spawnMm":[2125,1625],"radiusMm":200},
+        "fixtures":[], "actors":[], "items":[],
+        "zones":[{"id":"aisle","kind":"aisle","boundsMm":[300,1000,1500,1750]},
+                 {"id":"door","kind":"doorway","boundsMm":[1500,1250,750,700]},
+                 {"id":"receiving","kind":"receiving","boundsMm":[300,300,1800,1300]},
+                 {"id":"dock","kind":"dock","boundsMm":[2500,500,1300,1300]},
+                 {"id":"charge","kind":"charging","boundsMm":[2700,700,900,900]}]
+    })";
+    const auto complete = evaluate("compact-stockroom", stockroom);
     constexpr auto crossing = R"({
         "schemaVersion":"1.0.0", "scenarioId":606, "seed":507, "sizeMm":[8000,5000],
         "robot":{"spawnMm":[2125,2125],"radiusMm":200},
@@ -202,6 +213,9 @@ int main() {
                    small.contacts == 0 && cluttered.contacts == 0 && broad.contacts == 0 &&
                    small.blocked_moves == 0 && cluttered.blocked_moves == 0 &&
                    broad.blocked_moves == 0 && cart.contacts == 0 && cart.blocked_moves == 0 &&
+                   complete.reachable_coverage == 1.0 && complete.contacts == 0 &&
+                   complete.blocked_moves == 0 &&
+                   complete.progress.reason == navigation::Reason::no_frontiers &&
                    cart.progress.moving_yields > 0 && cart.progress.replans > 0 &&
                    cart.progress.reason == navigation::Reason::docked &&
                    inaccessible.progress.reason == navigation::Reason::dock_unreachable &&
