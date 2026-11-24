@@ -77,6 +77,13 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           cmake --workflow --preset linux-ci
 
+      - name: Fuzz input boundaries with sanitizers
+        if: runner.os == 'Linux'
+        run: |
+          cmake --preset linux-fuzz
+          cmake --build --preset linux-fuzz --parallel 3
+          bash tools/run-phase11-fuzz.sh
+
       - name: Configure, build and test Windows
         if: runner.os == 'Windows'
         shell: cmd

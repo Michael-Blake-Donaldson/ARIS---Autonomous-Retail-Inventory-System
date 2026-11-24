@@ -19,13 +19,12 @@ namespace {
 using Json = nlohmann::json;
 using namespace world;
 
-constexpr std::size_t max_parse_events = 32768;
+constexpr std::size_t max_parse_events = 200000;
 constexpr std::size_t max_depth = 8;
 constexpr std::uint64_t max_scenario_id = 9007199254740991ULL;
 constexpr std::size_t max_zones = 32;
 constexpr std::size_t max_actors = 32;
 constexpr std::size_t max_shelves = 16;
-constexpr std::size_t max_tags = 1024;
 
 [[noreturn]] void reject(ScenarioError error) { throw error; }
 
@@ -270,7 +269,7 @@ void read_actors(Scenario &scenario, const Json &values, std::set<std::string> &
 }
 
 void read_tags(Scenario &scenario, const Json &values) {
-    array_size(values, 0, max_tags);
+    array_size(values, 0, scenario_tag_limit);
     scenario.tags.reserve(values.size());
     std::set<std::string> ids;
     for (const auto &value : values) {

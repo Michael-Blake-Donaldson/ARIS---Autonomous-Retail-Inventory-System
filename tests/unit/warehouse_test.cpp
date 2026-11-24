@@ -207,7 +207,7 @@ TEST(ScenarioImport, BoundsBytesDepthEventsAndStreamReads) {
     EXPECT_EQ(huge_input.tellg(), static_cast<std::streamoff>(scenario_byte_limit + 1));
     EXPECT_EQ(rejected(std::string(32, '[')), ScenarioError::too_large);
     std::string many{"[0"};
-    for (int index = 0; index < 33000; ++index) {
+    for (int index = 0; index < 200000; ++index) {
         many += ",0";
     }
     EXPECT_EQ(rejected(many + "]"), ScenarioError::too_large);

@@ -229,7 +229,7 @@
     "items": {
       "type": "array",
       "minItems": 0,
-      "maxItems": 1024,
+      "maxItems": 10000,
       "items": {
         "type": "object",
         "additionalProperties": false,

@@ -44,12 +44,37 @@
         "ARGUS_ENABLE_SANITIZERS": "ON",
         "ARGUS_ENABLE_CLANG_TIDY": "ON"
       }
+    },
+    {
+      "name": "linux-fuzz",
+      "inherits": "linux-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ARGUS_ENABLE_FUZZING": "ON",
+        "ARGUS_ENABLE_CLANG_TIDY": "OFF"
+      }
+    },
+    {
+      "name": "linux-tsan",
+      "inherits": "linux-ci",
+      "cacheVariables": {
+        "ARGUS_ENABLE_SANITIZERS": "OFF",
+        "ARGUS_ENABLE_TSAN": "ON",
+        "ARGUS_ENABLE_CLANG_TIDY": "OFF"
+      }
     }
   ],
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
-    { "name": "linux-ci", "configurePreset": "linux-ci" }
+    { "name": "linux-ci", "configurePreset": "linux-ci" },
+    {
+      "name": "linux-fuzz",
+      "configurePreset": "linux-fuzz",
+      "targets": ["argus-fuzz-scenario", "argus-fuzz-catalog", "argus-fuzz-map", "argus-fuzz-rfid"]
+    },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan", "targets": ["argus_unit_tests"] }
   ],
   "testPresets": [
     {

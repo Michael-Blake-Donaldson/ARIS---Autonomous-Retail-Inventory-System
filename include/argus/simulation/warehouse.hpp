@@ -24,7 +24,8 @@ enum class ScenarioError {
     unknown_fixture,
 };
 
-inline constexpr std::size_t scenario_byte_limit = 256 * 1024;
+inline constexpr std::size_t scenario_byte_limit = 2 * 1024 * 1024;
+inline constexpr std::size_t scenario_tag_limit = 10000;
 inline constexpr std::int32_t max_robot_radius_mm = 5000;
 
 class Warehouse {

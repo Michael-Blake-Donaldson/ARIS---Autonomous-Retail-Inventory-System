@@ -3,11 +3,21 @@ project(ARGUS VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 option(ARGUS_ENABLE_SANITIZERS "Enable ASan and UBSan on project targets" OFF)
+option(ARGUS_ENABLE_TSAN "Enable ThreadSanitizer on project targets" OFF)
+option(ARGUS_ENABLE_FUZZING "Build Clang libFuzzer parser targets" OFF)
 option(ARGUS_ENABLE_CLANG_TIDY "Run clang-tidy during compilation" OFF)
 option(ARGUS_ENABLE_NATIVE_UI_TESTS "Run Windows operations center tests in an interactive session" OFF)
 if(ARGUS_ENABLE_SANITIZERS AND
    (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|GNU)$"))
     message(FATAL_ERROR "ARGUS sanitizers require Clang or GCC on Linux")
+endif()
+if((ARGUS_ENABLE_TSAN OR ARGUS_ENABLE_FUZZING) AND
+   (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+    message(FATAL_ERROR "ARGUS fuzzing and ThreadSanitizer require Clang on Linux")
+endif()
+if((ARGUS_ENABLE_TSAN AND ARGUS_ENABLE_SANITIZERS) OR
+   (ARGUS_ENABLE_FUZZING AND NOT ARGUS_ENABLE_SANITIZERS))
+    message(FATAL_ERROR "Use separate TSan and ASan/UBSan builds and enable ASan/UBSan for fuzzing")
 endif()
 if(ARGUS_ENABLE_CLANG_TIDY)
     find_program(ARGUS_CLANG_TIDY NAMES clang-tidy-18 clang-tidy REQUIRED)
@@ -169,6 +179,12 @@ if(BUILD_TESTING)
     argus_project_target(argus-navigation-evaluation)
     add_test(NAME argus-navigation-evaluation COMMAND argus-navigation-evaluation)
 
+    add_executable(argus-scale-evaluation tests/evaluation/scale_evaluation.cpp)
+    target_link_libraries(argus-scale-evaluation PRIVATE argus_mapping argus_sensors
+        nlohmann_json::nlohmann_json)
+    argus_project_target(argus-scale-evaluation)
+    add_test(NAME argus-scale-evaluation COMMAND argus-scale-evaluation 10000 200)
+
     function(argus_cli_smoke target)
         add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"
             "-DARGUS_EXECUTABLE=$<TARGET_FILE:${target}>"
@@ -208,4 +224,16 @@ if(BUILD_TESTING)
             set_tests_properties(argus-desktop.operations PROPERTIES TIMEOUT 70 RUN_SERIAL TRUE)
         endif()
     endif()
+endif()
+
+if(ARGUS_ENABLE_FUZZING)
+    foreach(parser IN ITEMS scenario catalog map rfid)
+        add_executable(argus-fuzz-${parser} tests/fuzz/${parser}.cpp)
+        argus_project_target(argus-fuzz-${parser})
+        target_link_options(argus-fuzz-${parser} PRIVATE -fsanitize=fuzzer)
+    endforeach()
+    target_link_libraries(argus-fuzz-scenario PRIVATE argus_world)
+    target_link_libraries(argus-fuzz-catalog PRIVATE argus_inventory)
+    target_link_libraries(argus-fuzz-map PRIVATE argus_mapping)
+    target_link_libraries(argus-fuzz-rfid PRIVATE argus_audit)
 endif()
