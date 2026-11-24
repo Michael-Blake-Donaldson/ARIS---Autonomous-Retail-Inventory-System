@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
+#include <cmath>
 #include <ios>
 #include <istream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <variant>
@@ -18,6 +20,11 @@ namespace {
 using namespace world;
 using detail::actor_bounds;
 using detail::Scenario;
+
+bool disk_inside(RectMm bounds, PrecisePointMm center, double radius) noexcept {
+    return center.x > bounds.min.x + radius && center.x < bounds.max.x - radius &&
+           center.y > bounds.min.y + radius && center.y < bounds.max.y - radius;
+}
 
 class StaticGrid {
   public:
@@ -127,6 +134,50 @@ bool Warehouse::collides(PointMm center, std::int32_t radius, std::uint64_t tick
         return detail::active_at(actor, tick) &&
                touches_disk(actor_bounds(actor, tick), center, radius);
     });
+}
+
+bool Warehouse::sweep_collides(PrecisePointMm from, PrecisePointMm to, double radius,
+                               std::uint64_t tick) const noexcept {
+    constexpr double max_arc_clearance_mm = 100.0;
+    const auto &scenario = state_->scenario;
+    if (!(radius > 0.0 && radius <= max_robot_radius_mm + max_arc_clearance_mm) ||
+        !disk_inside(scenario.floor, from, radius) || !disk_inside(scenario.floor, to, radius)) {
+        return true;
+    }
+    const RectMm query{{static_cast<std::int32_t>(std::floor(std::min(from.x, to.x) - radius)),
+                        static_cast<std::int32_t>(std::floor(std::min(from.y, to.y) - radius))},
+                       {static_cast<std::int32_t>(std::ceil(std::max(from.x, to.x) + radius)),
+                        static_cast<std::int32_t>(std::ceil(std::max(from.y, to.y) + radius))}};
+    const auto candidates = state_->grid.candidates(query);
+    for (std::size_t index = 0; index < scenario.solids.size(); ++index) {
+        if (candidates.test(index) &&
+            touches_swept_disk(scenario.solids.at(index).view.bounds, from, to, radius)) {
+            return true;
+        }
+    }
+    const auto next = tick == std::numeric_limits<std::uint64_t>::max() ? tick : tick + 1;
+    for (const auto &actor : scenario.actors) {
+        const auto end = actor_bounds(actor, next);
+        if (detail::active_at(actor, tick)) {
+            const auto start = actor_bounds(actor, tick);
+            // In the actor's local frame, subtract its translation from the robot's endpoint.
+            const PrecisePointMm relative_end{to.x - (end.min.x - start.min.x),
+                                              to.y - (end.min.y - start.min.y)};
+            if (touches_swept_disk(start, from, relative_end, radius)) {
+                return true;
+            }
+        } else if (detail::active_at(actor, next) && touches_swept_disk(end, to, to, radius)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Warehouse::charging_contact(PrecisePointMm center, std::int32_t radius) const noexcept {
+    const auto &zones = state_->scenario.zones;
+    const auto charging = std::ranges::find(zones, ZoneKind::charging, &ZoneView::kind);
+    return radius > 0 && radius <= max_robot_radius_mm && charging != zones.end() &&
+           disk_inside(charging->bounds, center, radius);
 }
 
 SensorQuery::SensorQuery(Warehouse warehouse) : warehouse_{std::move(warehouse)} {}

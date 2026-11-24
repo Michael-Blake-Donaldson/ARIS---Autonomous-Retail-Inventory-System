@@ -155,6 +155,28 @@ TEST(Warehouse, TemporaryObstructionsShareTheSameLifetimeAcrossQueries) {
     EXPECT_EQ(rejected(replace(fixture, "[20,180]", "[180,20]")), ScenarioError::invalid_schema);
 }
 
+TEST(Warehouse, SweptDiskCatchesStaticAndMovingObstaclesBetweenClearEndpoints) {
+    const auto fixed = small_warehouse();
+    EXPECT_FALSE(fixed.collides({1800, 2900}, 100, 0));
+    EXPECT_FALSE(fixed.collides({1800, 4100}, 100, 1));
+    EXPECT_TRUE(fixed.sweep_collides({1800, 2900}, {1800, 4100}, 100, 0));
+    EXPECT_FALSE(fixed.sweep_collides({5500, 2900}, {5500, 4100}, 350, 0));
+    EXPECT_TRUE(fixed.sweep_collides({std::numeric_limits<double>::quiet_NaN(), 2900}, {5500, 4100},
+                                     350, 0));
+    const auto fast = std::get<Warehouse>(
+        Warehouse::from_json(replace(small_fixture(), "\"legTicks\":60", "\"legTicks\":1")));
+    EXPECT_FALSE(fast.collides({5500, 7800}, 50, 0));
+    EXPECT_FALSE(fast.collides({5500, 7800}, 50, 1));
+    EXPECT_TRUE(fast.sweep_collides({5500, 7800}, {5500, 7800}, 50, 0));
+}
+
+TEST(Warehouse, DockContactRequiresEntireFootprintInsideChargingPad) {
+    const auto warehouse = small_warehouse();
+    EXPECT_TRUE(warehouse.charging_contact({12000, 1700}, 350));
+    EXPECT_FALSE(warehouse.charging_contact({11850, 1700}, 350));
+    EXPECT_FALSE(warehouse.charging_contact({10900, 1700}, 350));
+}
+
 TEST(ScenarioImport, RejectsMalformedDuplicateAndUnsupportedJson) {
     EXPECT_EQ(rejected("{"), ScenarioError::malformed_json);
     EXPECT_EQ(rejected(std::string{small_fixture()} + " {}"), ScenarioError::malformed_json);

@@ -33,4 +33,12 @@ TEST(Geometry, HandlesExtremeQueryCoordinatesWithoutOverflow) {
     EXPECT_FALSE(touches_disk({{0, 0}, {0, 0}}, {high, high}, high));
 }
 
+TEST(Geometry, SweptDiskCatchesThinWallsAndPreservesRoundCorners) {
+    const RectMm rectangle{{100, 100}, {200, 200}};
+    EXPECT_TRUE(touches_swept_disk(rectangle, {0, 150}, {300, 150}, 1));
+    EXPECT_TRUE(touches_swept_disk(rectangle, {0, 50}, {150, 50}, 50));
+    EXPECT_TRUE(touches_swept_disk(rectangle, {70, 60}, {70, 60}, 50));
+    EXPECT_FALSE(touches_swept_disk(rectangle, {60, 60}, {60, 60}, 50));
+}
+
 } // namespace

@@ -38,6 +38,12 @@ class Warehouse {
     [[nodiscard]] bool collides(world::PointMm center, std::int32_t radius_mm,
                                 std::uint64_t tick) const noexcept;
 
+    // Tests the disk's entire segment as dynamic actors advance from tick to the next tick.
+    [[nodiscard]] bool sweep_collides(world::PrecisePointMm from, world::PrecisePointMm to,
+                                      double radius_mm, std::uint64_t tick) const noexcept;
+    [[nodiscard]] bool charging_contact(world::PrecisePointMm center,
+                                        std::int32_t radius_mm) const noexcept;
+
   private:
     struct State;
 
