@@ -59,6 +59,10 @@ target_link_libraries(argus_inventory PUBLIC argus_core
     PRIVATE nlohmann_json::nlohmann_json unofficial::sqlite3::sqlite3)
 argus_project_target(argus_inventory)
 
+add_executable(argus-inventory apps/argus-inventory/main.cpp)
+target_link_libraries(argus-inventory PRIVATE argus_inventory nlohmann_json::nlohmann_json)
+argus_project_target(argus-inventory)
+
 find_package(spdlog CONFIG REQUIRED)
 configure_file(cmake/version.hpp.in generated/version.hpp @ONLY)
 add_library(argus_app STATIC
