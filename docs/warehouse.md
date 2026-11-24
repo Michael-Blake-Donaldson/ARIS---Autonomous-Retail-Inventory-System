@@ -14,9 +14,9 @@ Workers, carts and U-boats travel back and forth along an axis-aligned segment. 
 
 ## Import and export
 
-[The version 1.0.0 scenario schema](../assets/warehouse/scenario.schema.json) describes the JSON structure. The runtime also validates semantic constraints, integer tokens, reference integrity and collision rules. It accepts at most 256 KiB of input, parser event depths 0 through 7, 32,768 parser events and strings up to 64 bytes. Each scenario can contain 128 static fixtures, 32 zones, 32 actors and 1,024 item placements. Each rack supports up to 16 shelves. Object IDs use short lowercase slugs. EPCs are unique 24-digit uppercase hexadecimal strings.
+[The version 1.0.0 scenario schema](../assets/warehouse/scenario.schema.json) describes the JSON structure. The runtime also validates semantic constraints, integer tokens, reference integrity and collision rules. It accepts at most 2 MiB of input, parser event depths 0 through 7, 200,000 parser events and strings up to 64 bytes. Each scenario can contain 128 static fixtures, 32 zones, 32 actors and 10,000 item placements. Each rack supports up to 16 shelves. Object IDs use short lowercase slugs. EPCs are unique 24-digit uppercase hexadecimal strings. The sensor read and audit evidence caps apply independently of scenario size.
 
-Use `--scenario-stdin` to validate and load one document. The process reads at most 256 KiB plus one detection byte. An interactive pipe must close at end of document. The application accepts scenario bytes and catalogued fixture names. File selection and redirection are performed by the invoking shell or other caller. On Windows the process switches scenario input and fixture export to binary mode to preserve bytes.
+Use `--scenario-stdin` to validate and load one document. The process reads at most 2 MiB plus one detection byte. An interactive pipe must close at end of document. The application accepts scenario bytes and catalogued fixture names. File selection and redirection are performed by the invoking shell or other caller. On Windows the process switches scenario input and fixture export to binary mode to preserve bytes.
 
 Use `--export-warehouse NAME` to re-export a bundled fixture byte for byte. The Phase 1 envelope example remains a historical design fixture and lacks the geometry fields for a warehouse import.
 
