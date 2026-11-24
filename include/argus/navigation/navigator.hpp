@@ -14,6 +14,11 @@ struct Settings {
     std::uint64_t energy_per_meter_uj{80000000};
 };
 
+struct Destination {
+    Point point;
+    robot::Radians heading;
+};
+
 enum class State { waiting, exploring, yielding, returning, finished };
 enum class Reason {
     none,
@@ -29,7 +34,9 @@ enum class Reason {
     home_unreachable,
     dock_unreachable,
     home_reached,
-    docked
+    docked,
+    destination_reached,
+    destination_unreachable
 };
 
 struct Progress {
@@ -51,6 +58,7 @@ class Navigator {
     create(const mapping::Grid &grid, Settings settings = {}, std::span<const NoGo> zones = {});
     [[nodiscard]] robot::Command update(const mapping::Mapper &mapper, robot::Telemetry telemetry,
                                         const sensors::LidarScan *scan);
+    [[nodiscard]] bool set_destination(Destination destination) noexcept;
     [[nodiscard]] Progress progress() const noexcept { return progress_; }
 
   private:
@@ -73,6 +81,7 @@ class Navigator {
     std::vector<NoGo> zones_;
     Progress progress_;
     std::optional<Point> home_;
+    std::optional<Destination> destination_;
     std::optional<Costmap> costmap_;
     std::optional<Route> route_;
     std::vector<Cell> excluded_;
@@ -89,6 +98,7 @@ class Navigator {
     std::uint64_t return_wait_since_{};
     std::uint64_t retry_after_{};
     std::uint32_t return_retries_{};
+    std::uint32_t destination_retries_{};
     bool returning_{};
 };
 

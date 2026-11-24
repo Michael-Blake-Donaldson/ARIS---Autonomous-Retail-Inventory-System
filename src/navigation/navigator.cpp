@@ -100,6 +100,10 @@ std::string_view label(Reason reason) noexcept {
         return "home_reached";
     case Reason::docked:
         return "docked";
+    case Reason::destination_reached:
+        return "destination_reached";
+    case Reason::destination_unreachable:
+        return "destination_unreachable";
     }
     return "unknown";
 }
@@ -121,6 +125,24 @@ robot::Command Navigator::stop(State state, Reason reason) noexcept {
     progress_.state = state;
     progress_.reason = reason;
     return {};
+}
+
+bool Navigator::set_destination(Destination destination) noexcept {
+    const auto point = destination.point;
+    if (returning_ ||
+        (progress_.state == State::finished && progress_.reason != Reason::destination_reached &&
+         progress_.reason != Reason::destination_unreachable) ||
+        !(point.x_m >= 0.0 && point.x_m < spec_.width_mm / 1000.0 && point.y_m >= 0.0 &&
+          point.y_m < spec_.height_mm / 1000.0 && std::abs(destination.heading.value()) <= pi)) {
+        return false;
+    }
+    destination_ = destination;
+    route_.reset();
+    blocked_since_ = 0;
+    return_wait_since_ = 0;
+    destination_retries_ = 0;
+    stop(State::waiting, Reason::none);
+    return true;
 }
 
 bool Navigator::observe(const sensors::LidarScan &scan) {
@@ -273,6 +295,8 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
     const bool final = waypoint_ + 1 == route_->cells.size();
     if (returning_ && final) {
         target = *home_;
+    } else if (destination_ && final) {
+        target = destination_->point;
     }
     const auto here = position(pose);
     const double remaining = distance(here, target);
@@ -293,6 +317,23 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
                 return tick - dock_arrival_ >= retry_interval
                            ? stop(State::finished, Reason::dock_unreachable)
                            : stop(State::returning, Reason::none);
+            }
+            if (destination_) {
+                if (telemetry.collision_blocked) {
+                    return stop(State::yielding, Reason::obstacle);
+                }
+                const auto turn =
+                    std::remainder(destination_->heading.value() - pose.heading.value(), 2.0 * pi);
+                if (std::abs(turn) <= 0.09) {
+                    if (std::abs(telemetry.measured.linear.value()) <= 0.08 &&
+                        std::abs(telemetry.measured.angular.value()) <= 0.15) {
+                        return stop(State::finished, Reason::destination_reached);
+                    }
+                    return {};
+                }
+                return {.target = {MetersPerSecond{0},
+                                   robot::RadiansPerSecond{std::clamp(turn * 3.0, -1.4, 1.4)}},
+                        .deadman = true};
             }
             if (excluded_.size() == max_excluded) {
                 return stop(State::finished, Reason::unreachable_frontiers);
@@ -331,6 +372,10 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
                 if (++return_retries_ >= 3) {
                     return stop(State::finished, settings_.dock ? Reason::dock_unreachable
                                                                 : Reason::home_unreachable);
+                }
+            } else if (destination_) {
+                if (++destination_retries_ >= 3) {
+                    return stop(State::finished, Reason::destination_unreachable);
                 }
             } else {
                 if (excluded_.size() == max_excluded) {
@@ -419,7 +464,9 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
     }
     if (!route_) {
         std::optional<Cell> goal = home;
-        if (!returning_) {
+        if (!returning_ && destination_) {
+            goal = grid.locate(destination_->point);
+        } else if (!returning_) {
             // First try with the full energy allowance, then decide whether lack of a
             // feasible outbound and return path calls for returning or ending exploration.
             const auto candidate =
@@ -438,17 +485,24 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
         }
         route_ = goal ? plan(*costmap_, *start, *goal) : std::nullopt;
         if (!route_) {
-            if (!returning_) {
+            if (!returning_ && !destination_) {
                 return stop(State::finished, Reason::unreachable_frontiers);
             }
             if (return_wait_since_ == 0) {
                 return_wait_since_ = tick;
             }
-            const auto reason =
-                settings_.dock ? Reason::dock_unreachable : Reason::home_unreachable;
+            const auto reason = !returning_      ? Reason::destination_unreachable
+                                : settings_.dock ? Reason::dock_unreachable
+                                                 : Reason::home_unreachable;
             return stop(tick - return_wait_since_ < retry_interval ? State::waiting
                                                                    : State::finished,
                         reason);
+        }
+        if (!returning_ && destination_) {
+            const auto back = home ? plan(*costmap_, *goal, *home) : std::nullopt;
+            if (!back || route_->cost > available || back->cost > available - route_->cost) {
+                return stop(State::finished, Reason::destination_unreachable);
+            }
         }
         return_wait_since_ = 0;
         waypoint_ = route_->cells.size() > 1 ? 1 : 0;
