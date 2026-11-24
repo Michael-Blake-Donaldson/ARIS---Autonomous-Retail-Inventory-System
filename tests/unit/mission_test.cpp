@@ -105,6 +105,8 @@ TEST(MissionStore, HigherPriorityPreemptsAndReturningHasPriority) {
     auto store = std::get<Store>(Store::open(db.file()));
     const auto original = start(store);
     static_cast<void>(std::get<Record>(store.submit(scan(2, Priority::urgent))));
+    EXPECT_FALSE(std::get<std::optional<Record>>(store.dispatch()));
+    EXPECT_EQ(std::get<Cycle>(store.cycle(original.lease(), ready())).motion, Motion::brake);
     const auto urgent = std::get<std::optional<Record>>(store.dispatch()).value();
     EXPECT_EQ(urgent.intent.id, MissionId{2});
     const auto paused = std::get<Record>(store.get(original.intent.id));

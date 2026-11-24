@@ -274,6 +274,9 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         require(sqlite3_db_config(db.get(), SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, nullptr));
         sqlite3_limit(db.get(), SQLITE_LIMIT_LENGTH, 1024 * 1024);
         exec(db.get(), "PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL");
+        if (scalar(db.get(), "PRAGMA foreign_keys") != 1) {
+            throw Error::storage;
+        }
         Transaction transaction{db.get()};
         const auto version = scalar(db.get(), "PRAGMA user_version");
         const auto owner = scalar(db.get(), "PRAGMA application_id");
@@ -363,12 +366,7 @@ Result<std::optional<Record>, Error> Store::dispatch() {
             SELECT coalesce((SELECT id FROM work WHERE state IN (2,3,5,6)),0)
         )sql");
         if (running != 0) {
-            auto active = read(db, MissionId{running});
-            if (active.state == State::returning ||
-                incoming.intent.priority <= active.intent.priority) {
-                return std::nullopt;
-            }
-            apply(db, active, Action::pause, Cause::preempted);
+            return std::nullopt;
         }
         apply(db, incoming, Action::dispatch, Cause::scheduled);
         return incoming;
@@ -449,7 +447,9 @@ Result<Record, Error> Store::checkpoint(Lease lease, const Checkpoint &point) {
         if (point.sample <= prior.sample) {
             throw Error::stale;
         }
-        if (!progresses(prior, point) ||
+        const bool scan_work = record.intent.workflow == Workflow::scan_all ||
+                               record.intent.workflow == Workflow::find_item;
+        if (!progresses(prior, point) || (!scan_work && (point.planned_scans || point.raw_reads)) ||
             (record.state != State::executing &&
              (point.covered_scans != prior.covered_scans || point.raw_reads != prior.raw_reads))) {
             throw Error::invalid;
