@@ -273,6 +273,23 @@ TEST(InventoryRepository, PagesAssignedEpcsWithoutDuplicates) {
     EXPECT_EQ(second.units.front(), entries.units.back());
 }
 
+TEST(InventoryRepository, CatalogProductCursorDoesNotRepeatOrSkipRows) {
+    Folder folder;
+    auto repo = std::get<Repository>(Repository::open(folder.path / "products.db"));
+    Catalog catalog_page;
+    for (std::size_t i = 0; i <= page_size; ++i) {
+        std::ostringstream digits;
+        digits << "990-06-" << std::setfill('0') << std::setw(4) << i;
+        catalog_page.products.push_back({Dpci{digits.str()}, "Sample", Category::home_goods});
+    }
+    ASSERT_EQ(repo.insert_catalog(catalog_page), Status{std::monostate{}});
+    const auto first = std::get<std::vector<Product>>(repo.products());
+    ASSERT_EQ(first.size(), page_size);
+    const auto later = std::get<std::vector<Product>>(repo.products(first.back().id));
+    ASSERT_EQ(later.size(), 1U);
+    EXPECT_EQ(later.front(), catalog_page.products.back());
+}
+
 TEST(InventoryRepository, RetriesCleanlyAfterAnotherWriterReleasesTheLock) {
     Folder folder;
     const auto file = folder.path / "busy.db";

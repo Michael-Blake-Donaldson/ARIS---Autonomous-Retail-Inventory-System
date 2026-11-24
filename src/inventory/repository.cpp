@@ -405,6 +405,32 @@ Result<ProductPage, Error> Repository::find(const Dpci &id, const std::optional<
     });
 }
 
+Result<std::vector<Product>, Error> Repository::products(const std::optional<Dpci> &after) {
+    if (after && !valid(*after)) {
+        return Error::invalid_data;
+    }
+    return checked<std::vector<Product>>([&] {
+        Statement get{
+            db_.get(),
+            "SELECT dpci,name,category FROM products WHERE dpci>?1 ORDER BY dpci LIMIT ?2"};
+        get.text(1, after ? std::string_view{after->value} : std::string_view{});
+        get.integer(2, page_size);
+        std::vector<Product> result;
+        while (get.row()) {
+            result.push_back(
+                {Dpci{get.text(0)}, get.text(1), static_cast<Category>(get.integer(2))});
+        }
+        return result;
+    });
+}
+
+Result<std::uint64_t, Error> Repository::last_session() {
+    return checked<std::uint64_t>([&] {
+        return static_cast<std::uint64_t>(
+            scalar(db_.get(), "SELECT coalesce(max(id),0) FROM scan_sessions"));
+    });
+}
+
 Result<std::vector<ExpectedStock>, Error>
 Repository::expected_at(const AisleId &aisle, const std::optional<ExpectedStock> &after) {
     if (!valid_code(aisle.value) ||

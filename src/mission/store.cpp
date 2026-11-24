@@ -352,6 +352,14 @@ Result<std::vector<Event>, Error> Store::events(MissionId id) {
     });
 }
 
+Result<std::optional<Record>, Error> Store::latest() {
+    return checked<std::optional<Record>>([&]() -> std::optional<Record> {
+        auto *db = database_.get();
+        const auto id = scalar(db, "SELECT coalesce(max(id),0) FROM work");
+        return id == 0 ? std::nullopt : lookup(db, MissionId{id});
+    });
+}
+
 Result<std::optional<Record>, Error> Store::dispatch() {
     auto *db = database_.get();
     return write<std::optional<Record>>(db, [&]() -> std::optional<Record> {

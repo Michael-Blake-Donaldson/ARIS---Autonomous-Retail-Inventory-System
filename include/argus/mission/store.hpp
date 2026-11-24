@@ -29,6 +29,7 @@ class Store {
     [[nodiscard]] Result<Record, Error> submit(const Intent &intent);
     [[nodiscard]] Result<Record, Error> get(MissionId id);
     [[nodiscard]] Result<std::vector<Event>, Error> events(MissionId id);
+    [[nodiscard]] Result<std::optional<Record>, Error> latest();
     [[nodiscard]] Result<std::optional<Record>, Error> dispatch();
     [[nodiscard]] Result<Record, Error> cancel(MissionId id);
     [[nodiscard]] Result<Record, Error> confirm_inspection(MissionId id);

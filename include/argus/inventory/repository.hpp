@@ -63,6 +63,9 @@ class Repository {
     [[nodiscard]] Status remove_product(const Dpci &id);
     [[nodiscard]] Result<ProductPage, Error> find(const Dpci &id,
                                                   const std::optional<Epc> &after = {});
+    [[nodiscard]] Result<std::vector<Product>, Error>
+    products(const std::optional<Dpci> &after = {});
+    [[nodiscard]] Result<std::uint64_t, Error> last_session();
     [[nodiscard]] Result<std::vector<ExpectedStock>, Error>
     expected_at(const AisleId &aisle, const std::optional<ExpectedStock> &after = {});
     [[nodiscard]] Result<Assignment, Error> assignment(const Epc &epc);
