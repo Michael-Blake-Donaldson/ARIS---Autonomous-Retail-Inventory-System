@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <istream>
 #include <string>
 #include <string_view>
@@ -83,5 +84,8 @@ inline constexpr std::uint32_t max_expected_quantity = 1000000;
 [[nodiscard]] bool valid_code(std::string_view code) noexcept;
 [[nodiscard]] Status validate(const Catalog &catalog);
 [[nodiscard]] Result<Catalog, Error> parse_catalog(std::istream &input, Format format);
+[[nodiscard]] Result<Catalog, Error> parse_catalog(std::string_view bytes, Format format);
+[[nodiscard]] Result<Catalog, Error> load_catalog(const std::filesystem::path &import_directory,
+                                                  std::string_view filename);
 
 } // namespace argus::inventory

@@ -330,9 +330,6 @@ Status validate(const Catalog &catalog) {
 }
 
 Result<Catalog, Error> parse_catalog(std::istream &input, Format format) {
-    if (format != Format::csv && format != Format::json) {
-        return Error::invalid_data;
-    }
     std::string text;
     std::array<char, 4096> buffer{};
     try {
@@ -350,7 +347,17 @@ Result<Catalog, Error> parse_catalog(std::istream &input, Format format) {
     if (input.bad() || !input.eof()) {
         return Error::input_failure;
     }
-    auto parsed = format == Format::csv ? csv(text) : json(text);
+    return parse_catalog(std::string_view{text}, format);
+}
+
+Result<Catalog, Error> parse_catalog(std::string_view bytes, Format format) {
+    if (format != Format::csv && format != Format::json) {
+        return Error::invalid_data;
+    }
+    if (bytes.size() > import_byte_limit) {
+        return Error::too_large;
+    }
+    auto parsed = format == Format::csv ? csv(bytes) : json(bytes);
     if (const auto *catalog = std::get_if<Catalog>(&parsed)) {
         if (const auto status = validate(*catalog); std::holds_alternative<Error>(status)) {
             return std::get<Error>(status);
