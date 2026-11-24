@@ -2,7 +2,7 @@
   "name": "argus",
   "version-semver": "0.1.0",
   "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
-  "dependencies": ["gtest", "nlohmann-json", "spdlog", "sqlite3"],
+  "dependencies": ["gtest", "nlohmann-json", "picosha2", "spdlog", "sqlite3"],
   "features": {
     "desktop": {
       "description": "SDL3 support for the native Windows shell",

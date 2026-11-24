@@ -118,6 +118,8 @@ int run_application(int argc, char **argv, std::string_view name, Run run) noexc
                          " | --export-warehouse NAME]\n"
                          "Mapping: --warehouse NAME [--tick UINT64] [--cell-mm N]"
                          " (--map-steps N | --export-map N | --map-stdin)\n"
+                         "  --export-map N [--map-output DIRECTORY NAME.argmap]\n"
+                         "  --map-stdin [--map-sha256 HEX]\n"
                          "Exploration: --warehouse NAME [--tick UINT64] [--cell-mm N]"
                          " --explore-steps N [--dock-mm X Y]\n";
             break;

@@ -74,7 +74,24 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
         if (args.size() < 2) {
             return Error::invalid_arguments;
         }
-        if (option == "--tick" && !has_tick) {
+        if (option == "--map-output" && result.map_directory.empty() && args.size() >= 3) {
+            result.map_directory = bounded_argument(args[1], 4096);
+            result.map_leaf = bounded_argument(args[2], 80);
+            if (result.map_directory.empty() || result.map_directory.size() > 4096 ||
+                result.map_leaf.empty() || result.map_leaf.size() > 80) {
+                return Error::invalid_arguments;
+            }
+            args = args.subspan(3);
+            continue;
+        } else if (option == "--map-sha256" && result.map_digest.empty()) {
+            result.map_digest = bounded_argument(args[1], 64);
+            if (result.map_digest.size() != 64 ||
+                !std::ranges::all_of(result.map_digest, [](char c) {
+                    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                })) {
+                return Error::invalid_arguments;
+            }
+        } else if (option == "--tick" && !has_tick) {
             const auto tick = read_decimal<std::uint64_t>(args[1]);
             if (!tick) {
                 return Error::invalid_tick;
@@ -129,6 +146,8 @@ Result<Options, Error> warehouse_options(WarehouseSource source,
     }
     if ((has_dock && result.map_mode != MapMode::explore) ||
         (has_cell && result.map_mode == MapMode::none) ||
+        (!result.map_directory.empty() && result.map_mode != MapMode::export_map) ||
+        (!result.map_digest.empty() && result.map_mode != MapMode::load_map) ||
         (has_tick && result.map_mode == MapMode::load_map)) {
         return Error::invalid_arguments;
     }

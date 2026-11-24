@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
 #include <sstream>
 #include <string>
 
@@ -45,7 +46,7 @@ TEST(MapPersistence, RoundTripsEvidenceAndFrameMetadataExactly) {
 TEST(MapPersistence, RejectsIncompatibleVersionFrameScenarioAndResolution) {
     const auto original = saved();
     auto edited = original;
-    edited[8] = 2;
+    edited[8] = 3;
     EXPECT_EQ(rejects(edited), MapError::incompatible);
     edited = original;
     edited[12] = 2;
@@ -56,6 +57,39 @@ TEST(MapPersistence, RejectsIncompatibleVersionFrameScenarioAndResolution) {
     mismatch = spec;
     mismatch.cell_mm = 500;
     EXPECT_EQ(rejects(original, mismatch), MapError::incompatible);
+}
+
+TEST(MapPersistence, LoadsLegacyMapAndWritesSha256Format) {
+    auto legacy = saved();
+    legacy.resize(legacy.size() - 32);
+    legacy[8] = 1;
+    std::uint32_t checksum = 2166136261U;
+    for (const char byte : legacy) {
+        checksum = (checksum ^ static_cast<unsigned char>(byte)) * 16777619U;
+    }
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        legacy.push_back(std::bit_cast<char>(static_cast<unsigned char>(checksum >> shift)));
+    }
+    std::istringstream stream(legacy);
+    auto loaded = load(stream, spec);
+    ASSERT_TRUE(std::holds_alternative<Grid>(loaded));
+    std::ostringstream output;
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(save(std::get<Grid>(loaded), output)));
+    EXPECT_EQ(output.str(), saved());
+    std::istringstream pinned_legacy(legacy);
+    EXPECT_EQ(std::get<MapError>(load(pinned_legacy, spec, std::string(64, '0'))),
+              MapError::incompatible);
+}
+
+TEST(MapPersistence, DigestAgreesWithAnIndependentSha256Vector) {
+    constexpr Spec vector_spec{ScenarioId{5}, 200, 100, 100};
+    constexpr std::string_view pin =
+        "5497ed3989cdf6cf2a7c525e41d9ca91d3b9f67532a0fbe57c8c0cc230b2c8dc";
+    std::ostringstream output;
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        save(std::get<Grid>(Grid::create(vector_spec)), output)));
+    std::istringstream input(output.str());
+    EXPECT_TRUE(std::holds_alternative<Grid>(load(input, vector_spec, pin)));
 }
 
 TEST(MapPersistence, RejectsTruncationCorruptionTrailingBytesAndBadStreams) {

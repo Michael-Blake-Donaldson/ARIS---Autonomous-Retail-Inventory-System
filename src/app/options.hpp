@@ -43,6 +43,9 @@ struct Options {
     std::uint32_t cell_mm{250};
     std::uint32_t dock_x_mm{};
     std::uint32_t dock_y_mm{};
+    std::string_view map_directory{};
+    std::string_view map_leaf{};
+    std::string_view map_digest{};
 };
 
 // Accepts NUL-terminated process arguments after argv[0]. Options can borrow a fixture argument.

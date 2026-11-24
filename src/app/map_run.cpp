@@ -106,7 +106,7 @@ Status run_map(const Options &options) {
         if (!use_binary_mode(stdin)) {
             return MapError::input_failure;
         }
-        const auto imported = mapping::load(std::cin, spec);
+        const auto imported = mapping::load(std::cin, spec, options.map_digest);
         if (const auto *error = std::get_if<MapError>(&imported)) {
             return *error;
         }
@@ -140,6 +140,14 @@ Status run_map(const Options &options) {
         }
     }
     if (options.map_mode == MapMode::export_map) {
+        if (!options.map_directory.empty()) {
+            const auto saved =
+                mapping::save_atomic(mapper.grid(), options.map_directory, options.map_leaf);
+            if (const auto *error = std::get_if<MapError>(&saved)) {
+                return *error;
+            }
+            return std::monostate{};
+        }
         if (!use_binary_mode(stdout)) {
             return MapError::output_failure;
         }

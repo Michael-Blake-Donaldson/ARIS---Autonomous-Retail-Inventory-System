@@ -47,7 +47,10 @@ add_library(argus_sensors STATIC src/sensors/lidar.cpp src/sensors/rfid.cpp src/
 target_link_libraries(argus_sensors PUBLIC argus_robot)
 argus_project_target(argus_sensors)
 
-add_library(argus_mapping STATIC src/mapping/grid.cpp src/mapping/mapper.cpp src/mapping/map_io.cpp)
+add_library(argus_mapping STATIC src/mapping/grid.cpp src/mapping/mapper.cpp src/mapping/map_io.cpp
+    src/mapping/map_file.cpp)
+find_path(ARGUS_PICOSHA2_INCLUDE_DIR NAMES picosha2.h REQUIRED)
+target_include_directories(argus_mapping SYSTEM PRIVATE "${ARGUS_PICOSHA2_INCLUDE_DIR}")
 target_link_libraries(argus_mapping PUBLIC argus_core)
 argus_project_target(argus_mapping)
 
