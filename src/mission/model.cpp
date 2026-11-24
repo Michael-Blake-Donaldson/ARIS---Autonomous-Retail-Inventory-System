@@ -86,7 +86,7 @@ bool valid(const Intent &intent) noexcept {
 
 bool valid(const Checkpoint &point) noexcept {
     return point.sample <= 1000000 && point.elapsed_ms <= 7200000 && point.planned_mm <= 10000000 &&
-           point.actual_mm <= 10000000 && point.planned_scans <= 256 &&
+           point.actual_mm <= 10000000 && point.planned_scans <= 16 &&
            point.covered_scans <= point.planned_scans && point.raw_reads <= 1000000 &&
            point.exceptions <= 100000 && point.covered_mask <= 0xffff &&
            point.covered_scans == static_cast<std::uint64_t>(std::popcount(point.covered_mask));
@@ -128,7 +128,7 @@ Decision decide(const Record &record, const Readiness &ready) noexcept {
                        ? change(Action::finish, Cause::arrival)
                        : change(Action::charge, Cause::arrival);
         }
-        if (!ready.return_energy_uj) {
+        if (!ready.return_energy_uj || ready.energy_uj < *ready.return_energy_uj) {
             return {Motion::brake, {}, Cause::return_unavailable};
         }
         return {ready.obstructed ? Motion::brake : Motion::return_to_dock,
@@ -177,7 +177,7 @@ std::string_view label(Workflow kind) noexcept {
     return name(kind, names);
 }
 std::string_view label(Cause cause) noexcept {
-    constexpr std::array<std::string_view, 18> names{"submitted",
+    constexpr std::array<std::string_view, 19> names{"submitted",
                                                      "queued",
                                                      "scheduled",
                                                      "ready",
@@ -194,7 +194,8 @@ std::string_view label(Cause cause) noexcept {
                                                      "arrival",
                                                      "work_finished",
                                                      "return_unavailable",
-                                                     "inspected"};
+                                                     "inspected",
+                                                     "work_unavailable"};
     return name(cause, names);
 }
 std::string_view label(Error error) noexcept {

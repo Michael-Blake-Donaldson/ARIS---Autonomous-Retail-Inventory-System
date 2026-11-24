@@ -54,7 +54,8 @@ enum class Cause {
     arrival,
     work_finished,
     return_unavailable,
-    inspected
+    inspected,
+    work_unavailable
 };
 enum class Error { invalid, conflict, full, not_found, stale, illegal_transition, busy, storage };
 enum class Motion { brake, work, return_to_dock };

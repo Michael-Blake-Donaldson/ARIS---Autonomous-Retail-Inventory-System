@@ -74,6 +74,15 @@ add_library(argus_mission STATIC src/mission/model.cpp src/mission/store.cpp)
 target_link_libraries(argus_mission PUBLIC argus_inventory PRIVATE unofficial::sqlite3::sqlite3)
 argus_project_target(argus_mission)
 
+add_library(argus_mission_sim STATIC src/mission/simulation.cpp)
+target_link_libraries(argus_mission_sim PUBLIC argus_mission
+    PRIVATE argus_audit_sim argus_sensors)
+argus_project_target(argus_mission_sim)
+
+add_executable(argus-mission apps/argus-mission/main.cpp)
+target_link_libraries(argus-mission PRIVATE argus_mission_sim nlohmann_json::nlohmann_json)
+argus_project_target(argus-mission)
+
 add_executable(argus-inventory apps/argus-inventory/main.cpp)
 target_link_libraries(argus-inventory PRIVATE argus_audit_sim nlohmann_json::nlohmann_json)
 argus_project_target(argus-inventory)

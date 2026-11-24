@@ -16,7 +16,7 @@ constexpr auto schema = R"sql(
         priority INTEGER NOT NULL CHECK(priority BETWEEN 0 AND 2),
         limit_ms INTEGER NOT NULL, dpci TEXT NOT NULL, aisle TEXT NOT NULL,
         state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 9),
-        cause INTEGER NOT NULL CHECK(cause BETWEEN 0 AND 17),
+        cause INTEGER NOT NULL CHECK(cause BETWEEN 0 AND 18),
         revision INTEGER NOT NULL CHECK(revision BETWEEN 0 AND 255),
         sample INTEGER NOT NULL DEFAULT 0, elapsed_ms INTEGER NOT NULL DEFAULT 0,
         planned_mm INTEGER NOT NULL DEFAULT 0, actual_mm INTEGER NOT NULL DEFAULT 0,
@@ -410,6 +410,19 @@ Result<Record, Error> Store::confirm_inspection(MissionId id) {
     });
 }
 
+Result<Record, Error> Store::abort(Lease lease, Cause cause) {
+    if (cause != Cause::work_unavailable && cause != Cause::return_unavailable &&
+        cause != Cause::storage_error && cause != Cause::timeout) {
+        return Error::invalid;
+    }
+    auto *db = database_.get();
+    return write<Record>(db, [&] {
+        auto record = owned(db, lease);
+        apply(db, record, Action::fail, cause);
+        return record;
+    });
+}
+
 Result<std::size_t, Error> Store::recover() {
     auto *db = database_.get();
     return write<std::size_t>(db, [&] {
@@ -467,6 +480,14 @@ Result<Cycle, Error> Store::cycle(Lease lease, const Readiness &readiness) {
     return write<Cycle>(db, [&] {
         auto record = owned(db, lease);
         const auto decision = decide(record, readiness);
+        if (record.state != State::returning && !decision.action) {
+            Statement queued{db, "SELECT 1 FROM work WHERE state=1 AND priority>?1 LIMIT 1"};
+            queued.put_enum(1, record.intent.priority);
+            if (queued.row()) {
+                apply(db, record, Action::pause, Cause::preempted);
+                return Cycle{std::move(record), Motion::brake, Cause::preempted};
+            }
+        }
         if (decision.action) {
             apply(db, record, *decision.action, decision.cause);
         }

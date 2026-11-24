@@ -32,6 +32,7 @@ class Store {
     [[nodiscard]] Result<std::optional<Record>, Error> dispatch();
     [[nodiscard]] Result<Record, Error> cancel(MissionId id);
     [[nodiscard]] Result<Record, Error> confirm_inspection(MissionId id);
+    [[nodiscard]] Result<Record, Error> abort(Lease lease, Cause cause);
     [[nodiscard]] Result<Record, Error> resume(MissionId id, LocalizationProof proof);
     [[nodiscard]] Result<std::size_t, Error> recover();
     [[nodiscard]] Result<Record, Error> checkpoint(Lease lease, const Checkpoint &checkpoint);
