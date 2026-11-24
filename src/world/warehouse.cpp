@@ -182,6 +182,8 @@ bool Warehouse::charging_contact(PrecisePointMm center, std::int32_t radius) con
 
 SensorQuery::SensorQuery(Warehouse warehouse) : warehouse_{std::move(warehouse)} {}
 
+RectMm SensorQuery::floor() const noexcept { return warehouse_.state_->scenario.floor; }
+
 std::vector<RectMm> SensorQuery::obstacles(RectMm region, std::uint64_t tick) const {
     std::vector<RectMm> result;
     if (region.min.x > region.max.x || region.min.y > region.max.y) {

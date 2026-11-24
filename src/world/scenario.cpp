@@ -274,7 +274,13 @@ void read_tags(Scenario &scenario, const Json &values) {
     scenario.tags.reserve(values.size());
     std::set<std::string> ids;
     for (const auto &value : values) {
-        fields(value, {"epc", "rack", "shelf", "offsetMm"});
+        std::int32_t heading_deg = 0;
+        if (value.contains("headingDeg")) {
+            fields(value, {"epc", "rack", "shelf", "offsetMm", "headingDeg"});
+            heading_deg = mm(value.at("headingDeg"), 0, 359);
+        } else {
+            fields(value, {"epc", "rack", "shelf", "offsetMm"});
+        }
         const auto epc = string(value.at("epc"));
         if (epc.size() != 24 || !std::ranges::all_of(epc, [](char c) {
                 return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
@@ -297,8 +303,8 @@ void read_tags(Scenario &scenario, const Json &values) {
         }
         std::string owned_epc{epc};
         unique(ids, owned_epc);
-        scenario.tags.push_back(
-            {std::move(owned_epc), position, rack->view.shelf_heights_mm.at(shelf - 1)});
+        scenario.tags.push_back({std::move(owned_epc), position,
+                                 rack->view.shelf_heights_mm.at(shelf - 1), heading_deg});
     }
 }
 

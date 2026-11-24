@@ -12,6 +12,7 @@ struct TagTruth {
     std::string epc;
     world::PointMm position;
     std::int32_t height_mm;
+    std::int32_t heading_deg{};
     bool operator==(const TagTruth &) const = default;
 };
 
@@ -20,6 +21,7 @@ class SensorQuery {
   public:
     explicit SensorQuery(Warehouse warehouse);
 
+    [[nodiscard]] world::RectMm floor() const noexcept;
     [[nodiscard]] std::vector<world::RectMm> obstacles(world::RectMm region,
                                                        std::uint64_t tick) const;
     [[nodiscard]] std::vector<TagTruth> tags(world::RectMm region) const;
