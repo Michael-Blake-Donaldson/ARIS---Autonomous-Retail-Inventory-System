@@ -5,6 +5,7 @@
 #include <chrono>
 #include <future>
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 #include <stdexcept>
 #include <thread>
 
@@ -79,6 +80,43 @@ Record start(Store &store, const Intent &intent = scan()) {
     static_cast<void>(std::get<Record>(store.submit(intent)));
     const auto dispatched = std::get<std::optional<Record>>(store.dispatch()).value();
     return std::get<Cycle>(store.cycle(dispatched.lease(), ready())).record;
+}
+
+TEST(MissionArchive, MigratesVersionOneWithoutDiscardingMissionHistory) {
+    Database db;
+    {
+        auto store = std::get<Store>(Store::open(db.file()));
+        ASSERT_TRUE(std::holds_alternative<Record>(store.submit(scan(18))));
+    }
+    const auto path = db.file().u8string();
+    sqlite3 *raw = nullptr;
+    const auto opened = sqlite3_open(reinterpret_cast<const char *>(path.c_str()), &raw);
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> edit{raw, &sqlite3_close};
+    ASSERT_EQ(opened, SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(edit.get(), "DROP TABLE run_archive; PRAGMA user_version=1", nullptr,
+                           nullptr, nullptr),
+              SQLITE_OK);
+    edit.reset();
+
+    auto upgraded = std::get<Store>(Store::open(db.file()));
+    EXPECT_EQ(std::get<Record>(upgraded.get(MissionId{18})).state, State::queued);
+    EXPECT_EQ(std::get<std::uint64_t>(upgraded.highest_id()), 18U);
+    EXPECT_FALSE(std::get<std::optional<SavedRun>>(upgraded.saved_run()));
+}
+
+TEST(MissionStore, ASharedRunCanOnlyDispatchAndRecoverItsOwnSelectedMission) {
+    Database db;
+    auto store = std::get<Store>(Store::open(db.file()));
+    ASSERT_TRUE(std::holds_alternative<Record>(store.submit(scan(1, Priority::urgent))));
+    ASSERT_TRUE(std::holds_alternative<Record>(store.submit(scan(2))));
+    EXPECT_FALSE(std::get<std::optional<Record>>(store.dispatch(MissionId{2})));
+    const auto dispatched = std::get<std::optional<Record>>(store.dispatch(MissionId{1}));
+    ASSERT_TRUE(dispatched);
+    EXPECT_EQ(dispatched->intent.id, MissionId{1});
+    EXPECT_EQ(std::get<std::size_t>(store.recover(MissionId{2})), 0U);
+    EXPECT_EQ(std::get<Record>(store.get(MissionId{1})).state, State::planning);
+    EXPECT_EQ(std::get<std::size_t>(store.recover(MissionId{1})), 1U);
+    EXPECT_EQ(std::get<Record>(store.get(MissionId{1})).state, State::paused);
 }
 
 TEST(MissionState, TransitionMatrixCoversEveryStateAndAction) {
