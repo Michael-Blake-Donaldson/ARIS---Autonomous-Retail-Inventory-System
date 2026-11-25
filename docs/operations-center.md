@@ -13,7 +13,7 @@ Select Orbit, Top-down, or Follow with the camera buttons or keys 1, 2, and 3. R
 | View | Workflow |
 | --- | --- |
 | Overview | Live battery, estimated pose, motion, LiDAR returns and RFID counts |
-| Live Map | Layer toggles for LiDAR, occupancy, planned route, odometry trail, antenna region and uncertain evidence |
+| Live Map | Scan age, localization bounds, navigation decisions and layer toggles for LiDAR, occupancy, route, trail and evidence |
 | Find Product | Lookup by fictional DPCI, page through assigned EPCs, filter catalog rows, and investigate likely aisles |
 | Inventory Audit | Run an aisle audit and inspect expected quantities, unique EPC observations and review findings |
 | Missions | Run aisle scans, return to dock, and record or confirm a manual inspection |
@@ -25,9 +25,17 @@ Search, audit, and mission panels submit work to an isolated background simulato
 
 By default the workbench uses disposable fictional demo databases. To keep catalog and mission data across launches, use an existing operator-controlled directory with `argus-desktop --operations-data DIRECTORY`. It uses `catalog.db` and `missions.db` inside that directory and seeds the fictional catalog if the catalog database is absent. This standalone option opens the default live warehouse. A pre-existing mission database restores its latest record. The workbench rejects overlapping jobs and preserves unresolved mission state for cancellation or inspection confirmation.
 
+## Read the live map
+
+The Live Map reports the age of the last LiDAR scan accepted by the mapper, measured in simulation time. With the 50 ms step, a scan is fresh through 150 ms. Expired rays disappear while accumulated occupancy stays visible. The robot marker is mint for a current localization estimate, amber for an uncertain estimate, and gray while waiting for odometry. The error bounds are model estimates for distance and heading.
+
+Explore shows the navigator's current state and decision, such as holding for a fresh scan or yielding to an obstruction. The panel also shows yield and replan counts and the last recorded replan cause. These counters describe the current autonomous run.
+
+Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonomous exploration, the navigator holds after the last scan expires. Clear the checkbox to let fresh observations reach the mapper and navigator again. Wheel and RFID observations continue during the fault.
+
 ## Local verification and recording
 
-`argus-desktop --ui-smoke` drives the native workflows, loads a 12,000-row benchmark, resizes the window, and recreates OpenGL. It reports how many catalog rows were rendered and the 95th-percentile active frame time. Enable `ARGUS_ENABLE_NATIVE_UI_TESTS` at configure time to register it with CTest on an interactive Windows session. `--ui-tour` replays the same workflow at viewing speed.
+`argus-desktop --ui-smoke` drives the native workflows, verifies a LiDAR dropout and recovery, loads a 12,000-row benchmark, resizes the window, and recreates OpenGL. It reports how many catalog rows were rendered and the 95th-percentile active frame time. Enable `ARGUS_ENABLE_NATIVE_UI_TESTS` at configure time to register it with CTest on an interactive Windows session. `--ui-tour` replays the same workflow at viewing speed.
 
 `--ui-record` writes the native app framebuffer as bottom-up 1280 × 720 RGB24 at 20 frames per second. The workflow summary goes to stderr. Encode it from a binary-safe Command Prompt pipeline.
 

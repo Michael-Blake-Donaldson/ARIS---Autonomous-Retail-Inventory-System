@@ -10,7 +10,7 @@ Each valid LiDAR hit contributes free evidence along its ray and occupied eviden
 
 Mapping suspends when the pose is outside the extent, odometry is unpowered, or the cumulative distance or heading error budget reaches its limit. The defaults are 4 m and 24 rad. These conservative budgets grow with observations and can pause mapping even when the actual pose error is small. The estimated pose stays available with its reliability flag.
 
-A caller with an independently established pose can use `Mapper::reanchor`. It registers future odometry relative to that pose and clears the previous evidence. An accepted anchor must be inside the map and under both error thresholds. The desktop Home control resets the complete simulation run and mapper. F5 shows the estimated grid, with muted teal free cells, amber occupied cells, navy unknown space and a mint pose marker. A red pose marker indicates suspended mapping.
+A caller with an independently established pose can use `Mapper::reanchor`. It registers future odometry relative to that pose and clears the previous evidence. An accepted anchor must be inside the map and under both error thresholds. The desktop Home control resets the complete simulation run and mapper. F5 shows the estimated grid, with muted teal free cells, amber occupied cells and navy unknown space. The pose marker is mint for a current estimate, amber for uncertainty and gray while waiting for odometry. [Live map readouts](operations-center.md#read-the-live-map)
 
 ## Map replay and snapshots
 
