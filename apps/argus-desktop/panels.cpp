@@ -364,6 +364,9 @@ void Panels::map(const LiveFrame &frame, bool focused) {
         ImGui::Text("Error bounds %.2f m   %.2f rad", frame.estimate->distance_error_m,
                     frame.estimate->heading_error_rad);
     }
+    const auto padding = ImGui::GetStyle().FramePadding;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {padding.x, 4.0F});
+    ImGui::Checkbox("Simulate LiDAR dropout", &lidar_dropout);
 
     title("Navigation");
     if (frame.telemetry.emergency_latched) {
@@ -396,8 +399,7 @@ void Panels::map(const LiveFrame &frame, bool focused) {
         overlays.occupancy = true;
         camera.mode = CameraMode::plan;
     }
-    ImGui::Spacing();
-    ImGui::Checkbox("Simulate LiDAR dropout", &lidar_dropout);
+    ImGui::PopStyleVar();
 }
 
 void Panels::find() {
