@@ -448,14 +448,16 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
                                            : "MANUAL");
     ImGui::SameLine();
     ImGui::Text("Sample %llu", static_cast<unsigned long long>(frame.telemetry.sample_tick));
-    ImGui::SameLine();
-    if (frame.map.scan == ScanState::fresh && frame.lidar) {
-        ImGui::Text("LiDAR %u returns", frame.lidar->return_count);
-    } else {
-        quiet(frame.map.scan == ScanState::stale ? "LiDAR stale" : "LiDAR unavailable");
+    if (!frame.archived) {
+        ImGui::SameLine();
+        if (frame.map.scan == ScanState::fresh && frame.lidar) {
+            ImGui::Text("LiDAR %u returns", frame.lidar->return_count);
+        } else {
+            quiet(frame.map.scan == ScanState::stale ? "LiDAR stale" : "LiDAR unavailable");
+        }
+        ImGui::SameLine();
+        ImGui::Text("RFID %zu reads", frame.rfid_reads);
     }
-    ImGui::SameLine();
-    ImGui::Text("RFID %zu reads", frame.rfid_reads);
     ImGui::SameLine();
     quiet(status_);
     ImGui::End();
@@ -772,7 +774,10 @@ void Panels::history() {
             close_review_pending_ = true;
         }
         ImGui::Text("Run %llu", static_cast<unsigned long long>(saved_->id.value()));
-        ImGui::Text("Search session %llu", static_cast<unsigned long long>(saved_->search_session));
+        if (saved_->search_session) {
+            ImGui::Text("Search session %llu",
+                        static_cast<unsigned long long>(saved_->search_session));
+        }
         ImGui::Text("Audit session %llu", static_cast<unsigned long long>(saved_->audit_session));
         if (saved_->mission) {
             ImGui::Text("Mission %llu", static_cast<unsigned long long>(saved_->mission));

@@ -267,6 +267,7 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
             auto job = std::exchange(pending_, std::nullopt).value();
             lock.unlock();
             WorkResult result{.kind = job.kind};
+            bool failed = false;
             try {
                 std::optional<simulation::ObservedRun> observed;
                 if (job.live) {
@@ -286,8 +287,18 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                 }
                 result = process(job, catalog, store, sequence, observed ? &*observed : nullptr);
             } catch (const simulation::RunInterrupted &) {
+                failed = true;
                 result.status = "Run held by operator";
-                if (job.subject) {
+            } catch (const std::string &error) {
+                failed = true;
+                result.status = error;
+            } catch (const std::exception &) {
+                failed = true;
+                result.status = "Run operation failed";
+            }
+            if (job.live) {
+                job.live->finish_job(emergency_.load());
+                if (failed && job.subject) {
                     static_cast<void>(store.recover(job.subject));
                     if (auto current = store.get(*job.subject);
                         auto *record = std::get_if<mission::Record>(&current)) {
@@ -298,13 +309,6 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                         }
                     }
                 }
-            } catch (const std::string &error) {
-                result.status = error;
-            } catch (const std::exception &) {
-                result.status = "Run operation failed";
-            }
-            if (job.live) {
-                job.live->finish_job(emergency_.load());
                 result.live = std::move(job.live);
             }
             publish(std::move(result));
