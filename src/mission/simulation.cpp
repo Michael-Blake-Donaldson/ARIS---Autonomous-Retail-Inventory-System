@@ -2,6 +2,7 @@
 
 #include "argus/audit/mission.hpp"
 #include "argus/simulation/fixtures.hpp"
+#include "argus/simulation/observed_run.hpp"
 #include "argus/simulation/robot.hpp"
 #include "argus/simulation/sensors.hpp"
 
@@ -103,24 +104,12 @@ Plan schedule(const Intent &intent, inventory::Repository *catalog) {
 
 class RobotRun {
   public:
-    RobotRun(simulation::RobotSimulation &robot, simulation::SensorRig &rig,
-             mapping::Mapper &mapper, navigation::Navigator &navigator, Meters radius)
-        : robot_{robot}, rig_{rig}, mapper_{mapper}, navigator_{navigator}, radius_{radius} {}
+    RobotRun(simulation::ObservedRun &run, navigation::Navigator &navigator)
+        : robot_{run.robot}, mapper_{run.mapper}, navigator_{navigator}, radius_{run.radius},
+          run_{run}, lidar_{run.lidar} {}
 
     void step(robot::Command command) {
-        robot_.step(command);
-        rig_.capture(robot_);
-        rfid_.reset();
-        while (auto reading = rig_.pop()) {
-            const auto accepted = mapper_.ingest(*reading);
-            if (auto *scan = std::get_if<sensors::LidarScan>(&*reading);
-                scan && accepted == mapping::Update::accepted) {
-                lidar_ = std::move(*scan);
-            }
-            if (auto *scan = std::get_if<sensors::RfidScan>(&*reading)) {
-                rfid_ = std::move(*scan);
-            }
-        }
+        rfid_ = simulation::step_observed(run_, command, navigator_);
     }
 
     [[nodiscard]] robot::Telemetry telemetry() const noexcept { return robot_.telemetry(); }
@@ -202,12 +191,12 @@ class RobotRun {
 
   private:
     simulation::RobotSimulation &robot_;
-    simulation::SensorRig &rig_;
     mapping::Mapper &mapper_;
     navigation::Navigator &navigator_;
     Meters radius_;
     audit::Evidence evidence_;
-    std::optional<sensors::LidarScan> lidar_;
+    simulation::ObservedRun &run_;
+    std::optional<sensors::LidarScan> &lidar_;
     std::optional<sensors::RfidScan> rfid_;
 };
 
@@ -383,12 +372,27 @@ Result<DemoResult, Error> run_demo(Store &store, inventory::Repository *catalog,
         auto mapper = take(mapping::Mapper::create(
             {declared.scenario_id, static_cast<std::uint32_t>(declared.floor.max.x),
              static_cast<std::uint32_t>(declared.floor.max.y), 250}));
-        auto navigator =
-            navigation::Navigator::create(mapper.grid(), {.radius = radius, .dock = dock});
+        std::optional<sensors::LidarScan> lidar;
+        simulation::ObservedRun observed{robot, rig, mapper, lidar, {}, radius};
+        return run_observed(store, catalog, observed, options);
+    } catch (Error error) {
+        return error;
+    }
+}
+
+Result<DemoResult, Error> run_observed(Store &store, inventory::Repository *catalog,
+                                       simulation::ObservedRun &observed, DemoOptions options) {
+    if (options.ticks == 0 || options.ticks > 2400 ||
+        observed.mapper.grid().spec().scenario != ScenarioId{801}) {
+        return Error::invalid;
+    }
+    try {
+        auto navigator = navigation::Navigator::create(observed.mapper.grid(),
+                                                       {.radius = observed.radius, .dock = dock});
         if (!navigator) {
             return Error::invalid;
         }
-        RobotRun run{robot, rig, mapper, *navigator, radius};
+        RobotRun run{observed, *navigator};
         if (options.resume) {
             // A newly started synthetic fixture supplies a fresh observed launch pose.
             run.step({});
@@ -399,7 +403,7 @@ Result<DemoResult, Error> run_demo(Store &store, inventory::Repository *catalog,
             take(store.resume(*options.resume, {anchor->sample_tick, anchor->distance_error_m,
                                                 anchor->heading_error_rad, anchor->reliable}));
         }
-        auto record = take(store.dispatch());
+        auto record = take(store.dispatch(options.expected));
         if (!record) {
             return DemoResult{};
         }
@@ -408,7 +412,7 @@ Result<DemoResult, Error> run_demo(Store &store, inventory::Repository *catalog,
             plan = schedule(record->intent, catalog);
         } catch (Error) {
             return DemoResult{take(store.abort(record->lease(), Cause::work_unavailable)),
-                              robot.telemetry().energy_uj};
+                              observed.robot.telemetry().energy_uj};
         }
         return execute(store, run, std::move(*record), plan, options.ticks);
     } catch (Error error) {

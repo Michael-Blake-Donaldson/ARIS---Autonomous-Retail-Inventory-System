@@ -19,6 +19,7 @@ template <typename Tag> class Id {
 using ScenarioId = Id<struct ScenarioTag>;
 using RobotId = Id<struct RobotTag>;
 using MissionId = Id<struct MissionTag>;
+using RunId = Id<struct RunTag>;
 
 // These wrappers preserve dimensions. Domain-specific range checks belong at input boundaries.
 template <typename Unit> class Quantity {

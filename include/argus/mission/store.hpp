@@ -23,6 +23,20 @@ struct LocalizationProof {
     bool reliable;
 };
 
+inline constexpr std::size_t archived_map_limit = 128 * 1024;
+inline constexpr std::size_t archived_report_limit = 512 * 1024;
+
+struct SavedRun {
+    RunId id;
+    ScenarioId scenario;
+    std::uint64_t sample_tick;
+    std::uint64_t mission;
+    std::uint64_t search_session;
+    std::uint64_t audit_session;
+    std::string map;
+    std::string report;
+};
+
 class Store {
   public:
     [[nodiscard]] static Result<Store, Error> open(const std::filesystem::path &path);
@@ -30,12 +44,16 @@ class Store {
     [[nodiscard]] Result<Record, Error> get(MissionId id);
     [[nodiscard]] Result<std::vector<Event>, Error> events(MissionId id);
     [[nodiscard]] Result<std::optional<Record>, Error> latest();
-    [[nodiscard]] Result<std::optional<Record>, Error> dispatch();
+    [[nodiscard]] Result<std::uint64_t, Error> highest_id();
+    [[nodiscard]] Result<std::monostate, Error> save_run(const SavedRun &run);
+    [[nodiscard]] Result<std::optional<SavedRun>, Error> saved_run();
+    [[nodiscard]] Result<std::optional<Record>, Error>
+    dispatch(std::optional<MissionId> expected = {});
     [[nodiscard]] Result<Record, Error> cancel(MissionId id);
     [[nodiscard]] Result<Record, Error> confirm_inspection(MissionId id);
     [[nodiscard]] Result<Record, Error> abort(Lease lease, Cause cause);
     [[nodiscard]] Result<Record, Error> resume(MissionId id, LocalizationProof proof);
-    [[nodiscard]] Result<std::size_t, Error> recover();
+    [[nodiscard]] Result<std::size_t, Error> recover(std::optional<MissionId> expected = {});
     [[nodiscard]] Result<Record, Error> checkpoint(Lease lease, const Checkpoint &checkpoint);
     [[nodiscard]] Result<Cycle, Error> cycle(Lease lease, const Readiness &readiness);
 

@@ -38,6 +38,31 @@ class Database {
     std::filesystem::path directory;
 };
 
+TEST(MissionArchive, ReopensExactEvidenceAndRetainsItAfterRejectedReplacement) {
+    Database db;
+    const SavedRun sample{
+        RunId{17}, ScenarioId{801}, 120, 4, 5, 6, std::string{"map\0bytes", 9}, R"({"session":6})"};
+    {
+        auto store = std::get<Store>(Store::open(db.file()));
+        EXPECT_FALSE(std::get<std::optional<SavedRun>>(store.saved_run()));
+        EXPECT_TRUE(std::holds_alternative<std::monostate>(store.save_run(sample)));
+        auto invalid = sample;
+        invalid.report.assign(archived_report_limit + 1, 'x');
+        EXPECT_EQ(std::get<Error>(store.save_run(invalid)), Error::invalid);
+    }
+    auto reopened = std::get<Store>(Store::open(db.file()));
+    const auto archive = std::get<std::optional<SavedRun>>(reopened.saved_run());
+    ASSERT_TRUE(archive);
+    EXPECT_EQ(archive->id, sample.id);
+    EXPECT_EQ(archive->scenario, sample.scenario);
+    EXPECT_EQ(archive->sample_tick, sample.sample_tick);
+    EXPECT_EQ(archive->mission, sample.mission);
+    EXPECT_EQ(archive->search_session, sample.search_session);
+    EXPECT_EQ(archive->audit_session, sample.audit_session);
+    EXPECT_EQ(archive->map, sample.map);
+    EXPECT_EQ(archive->report, sample.report);
+}
+
 Intent scan(std::uint64_t id = 1, Priority priority = Priority::routine) {
     return {MissionId{id}, Workflow::scan_all, priority, 60000};
 }

@@ -38,6 +38,18 @@ constexpr auto schema = R"sql(
     PRAGMA user_version=1;
 )sql";
 
+constexpr auto archive_schema = R"sql(
+    CREATE TABLE run_archive (
+        slot INTEGER PRIMARY KEY CHECK(slot=1), run_id INTEGER NOT NULL CHECK(run_id>0),
+        scenario INTEGER NOT NULL CHECK(scenario>0), sample INTEGER NOT NULL CHECK(sample>0),
+        mission INTEGER NOT NULL CHECK(mission>=0), search_session INTEGER NOT NULL CHECK(search_session>=0),
+        audit_session INTEGER NOT NULL CHECK(audit_session>0),
+        map BLOB NOT NULL CHECK(length(map) BETWEEN 1 AND 131072),
+        report TEXT NOT NULL CHECK(length(CAST(report AS BLOB)) BETWEEN 1 AND 524288)
+    ) STRICT;
+    PRAGMA user_version=2;
+)sql";
+
 [[noreturn]] void fail(int code) {
     throw(code & 0xff) == SQLITE_BUSY || (code & 0xff) == SQLITE_LOCKED ? Error::busy
                                                                         : Error::storage;
@@ -91,6 +103,10 @@ class Statement {
         require(sqlite3_bind_text(stmt_.get(), index, value.empty() ? "" : value.data(),
                                   static_cast<int>(value.size()), SQLITE_TRANSIENT));
     }
+    void put_blob(int index, std::string_view bytes) {
+        require(sqlite3_bind_blob(stmt_.get(), index, bytes.data(), static_cast<int>(bytes.size()),
+                                  SQLITE_TRANSIENT));
+    }
     template <typename Enum> void put_enum(int index, Enum value) {
         put(index, static_cast<std::uint64_t>(value));
     }
@@ -123,6 +139,23 @@ class Statement {
             throw Error::storage;
         }
         return {reinterpret_cast<const char *>(value), static_cast<std::size_t>(count)};
+    }
+    [[nodiscard]] std::string bytes(int column, int type, std::size_t limit) const {
+        if (sqlite3_column_type(stmt_.get(), column) != type) {
+            throw Error::storage;
+        }
+        const auto count = sqlite3_column_bytes(stmt_.get(), column);
+        if (count <= 0 || static_cast<std::size_t>(count) > limit) {
+            throw Error::storage;
+        }
+        const auto *value =
+            type == SQLITE_BLOB
+                ? static_cast<const char *>(sqlite3_column_blob(stmt_.get(), column))
+                : reinterpret_cast<const char *>(sqlite3_column_text(stmt_.get(), column));
+        if (!value) {
+            throw Error::storage;
+        }
+        return {value, static_cast<std::size_t>(count)};
     }
 
   private:
@@ -284,15 +317,74 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         const auto owner = scalar(db.get(), "PRAGMA application_id");
         const bool fresh = version == 0 && owner == 0 &&
                            scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0;
-        if ((!fresh && (version != 1 || owner != identity)) ||
+        if ((!fresh && ((version != 1 && version != 2) || owner != identity)) ||
             !storage::configure_database(db.get(), scalar, storage::max_database_bytes)) {
             throw Error::storage;
         }
         if (fresh) {
             exec(db.get(), schema);
         }
+        if (version < 2) {
+            exec(db.get(), archive_schema);
+        }
         transaction.commit();
         return Store{std::move(db)};
+    });
+}
+
+Result<std::uint64_t, Error> Store::highest_id() {
+    return checked<std::uint64_t>(
+        [&] { return scalar(database_.get(), "SELECT coalesce(max(id),0) FROM work"); });
+}
+
+Result<std::monostate, Error> Store::save_run(const SavedRun &run) {
+    if (run.id.value() == 0 || run.id.value() > max_id || run.scenario.value() == 0 ||
+        run.scenario.value() > max_id || run.sample_tick == 0 || run.sample_tick > max_id ||
+        run.mission > max_id || run.search_session > max_id || run.audit_session == 0 ||
+        run.audit_session > max_id || run.map.empty() || run.map.size() > archived_map_limit ||
+        run.report.empty() || run.report.size() > archived_report_limit ||
+        run.report.find('\0') != std::string::npos) {
+        return Error::invalid;
+    }
+    auto *db = database_.get();
+    return write<std::monostate>(db, [&] {
+        Statement save{db, R"sql(
+            INSERT INTO run_archive(slot,run_id,scenario,sample,mission,search_session,audit_session,map,report)
+            VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8)
+            ON CONFLICT(slot) DO UPDATE SET run_id=excluded.run_id, scenario=excluded.scenario,
+                sample=excluded.sample, mission=excluded.mission, search_session=excluded.search_session,
+                audit_session=excluded.audit_session, map=excluded.map, report=excluded.report
+        )sql"};
+        save.put(1, run.id.value());
+        save.put(2, run.scenario.value());
+        save.put(3, run.sample_tick);
+        save.put(4, run.mission);
+        save.put(5, run.search_session);
+        save.put(6, run.audit_session);
+        save.put_blob(7, run.map);
+        save.put(8, run.report);
+        save.write();
+        return std::monostate{};
+    });
+}
+
+Result<std::optional<SavedRun>, Error> Store::saved_run() {
+    return checked<std::optional<SavedRun>>([&]() -> std::optional<SavedRun> {
+        Statement find{database_.get(), R"sql(
+            SELECT run_id,scenario,sample,mission,search_session,audit_session,map,report
+            FROM run_archive WHERE slot=1
+        )sql"};
+        if (!find.row()) {
+            return std::nullopt;
+        }
+        return SavedRun{RunId{find.integer(0)},
+                        ScenarioId{find.integer(1)},
+                        find.integer(2),
+                        find.integer(3),
+                        find.integer(4),
+                        find.integer(5),
+                        find.bytes(6, SQLITE_BLOB, archived_map_limit),
+                        find.bytes(7, SQLITE_TEXT, archived_report_limit)};
     });
 }
 
@@ -365,13 +457,13 @@ Result<std::optional<Record>, Error> Store::latest() {
     });
 }
 
-Result<std::optional<Record>, Error> Store::dispatch() {
+Result<std::optional<Record>, Error> Store::dispatch(std::optional<MissionId> expected) {
     auto *db = database_.get();
     return write<std::optional<Record>>(db, [&]() -> std::optional<Record> {
         const auto candidate = scalar(db, R"sql(
             SELECT coalesce((SELECT id FROM work WHERE state=1 ORDER BY priority DESC,ordinal LIMIT 1),0)
         )sql");
-        if (candidate == 0) {
+        if (candidate == 0 || (expected && expected->value() != candidate)) {
             return std::nullopt;
         }
         auto incoming = read(db, MissionId{candidate});
@@ -434,13 +526,13 @@ Result<Record, Error> Store::abort(Lease lease, Cause cause) {
     });
 }
 
-Result<std::size_t, Error> Store::recover() {
+Result<std::size_t, Error> Store::recover(std::optional<MissionId> expected) {
     auto *db = database_.get();
     return write<std::size_t>(db, [&] {
         const auto active = scalar(db, R"sql(
             SELECT coalesce((SELECT id FROM work WHERE state IN (2,3,5,6)),0)
         )sql");
-        if (active == 0) {
+        if (active == 0 || (expected && expected->value() != active)) {
             return std::size_t{0};
         }
         auto record = read(db, MissionId{active});
