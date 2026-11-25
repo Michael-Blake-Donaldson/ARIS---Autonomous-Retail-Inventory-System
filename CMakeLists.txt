@@ -91,7 +91,7 @@ argus_project_target(argus_mission)
 
 add_library(argus_operations_model STATIC apps/argus-desktop/operations_model.cpp)
 target_include_directories(argus_operations_model PUBLIC apps/argus-desktop)
-target_link_libraries(argus_operations_model PUBLIC argus_core)
+target_link_libraries(argus_operations_model PUBLIC argus_navigation)
 argus_project_target(argus_operations_model)
 
 add_library(argus_mission_sim STATIC src/mission/simulation.cpp)

@@ -61,7 +61,7 @@ void LiveEngine::restart() {
     reads_ = 0;
 }
 
-void LiveEngine::step(robot::Command manual, LiveAction action, bool armed) {
+void LiveEngine::step(robot::Command manual, LiveAction action, bool armed, bool lidar_dropout) {
     const auto telemetry = robot_.telemetry();
     if (action == LiveAction::restart && !manual.deadman && !telemetry.emergency_latched) {
         restart();
@@ -87,7 +87,7 @@ void LiveEngine::step(robot::Command manual, LiveAction action, bool armed) {
         manual = navigator_->update(mapper_, telemetry, lidar_ ? &*lidar_ : nullptr);
     }
     robot_.step(manual);
-    capture();
+    capture(lidar_dropout);
     route_.clear();
     if (navigator_) {
         const auto cells = navigator_->route();
@@ -101,9 +101,12 @@ void LiveEngine::step(robot::Command manual, LiveAction action, bool armed) {
     }
 }
 
-void LiveEngine::capture() {
+void LiveEngine::capture(bool lidar_dropout) {
     sensors_.capture(robot_);
     while (auto reading = sensors_.pop()) {
+        if (lidar_dropout && std::holds_alternative<sensors::LidarScan>(*reading)) {
+            continue;
+        }
         const auto accepted = mapper_.ingest(*reading);
         if (auto *scan = std::get_if<sensors::LidarScan>(&*reading);
             scan && accepted == mapping::Update::accepted) {
@@ -132,19 +135,18 @@ void LiveEngine::capture() {
 }
 
 LiveFrame LiveEngine::frame() const noexcept {
-    const auto progress = navigator_ ? navigator_->progress() : navigation::Progress{};
-    return {robot_.telemetry(),
+    const auto telemetry = robot_.telemetry();
+    const auto *lidar = lidar_ ? &*lidar_ : nullptr;
+    return {telemetry,
             mapper_.grid(),
-            lidar_ ? &*lidar_ : nullptr,
+            lidar,
             route_,
             trace_,
             reads_,
             epcs_.size(),
-            navigator_
-                ? (progress.reason == navigation::Reason::none ? navigation::label(progress.state)
-                                                               : navigation::label(progress.reason))
-                : "manual",
-            navigator_ && progress.state != navigation::State::finished};
+            map_status(telemetry, lidar, mapper_.estimate()),
+            mapper_.estimate(),
+            navigator_ ? std::optional{navigator_->progress()} : std::nullopt};
 }
 
 DiagnosticsFrame LiveEngine::diagnostics() const {

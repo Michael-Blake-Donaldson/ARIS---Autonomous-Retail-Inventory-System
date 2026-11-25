@@ -16,7 +16,7 @@ class LiveEngine {
     [[nodiscard]] static Result<LiveEngine, app::Failure> create(simulation::Warehouse warehouse,
                                                                  std::uint64_t start_tick);
 
-    void step(robot::Command manual, LiveAction action, bool armed);
+    void step(robot::Command manual, LiveAction action, bool armed, bool lidar_dropout = false);
     [[nodiscard]] const Layout &layout() const noexcept { return layout_; }
     [[nodiscard]] LiveFrame frame() const noexcept;
     [[nodiscard]] DiagnosticsFrame diagnostics() const;
@@ -24,7 +24,7 @@ class LiveEngine {
   private:
     LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
                simulation::SensorRig sensors, mapping::Mapper mapper, Layout layout);
-    void capture();
+    void capture(bool lidar_dropout);
     void restart();
 
     simulation::Warehouse warehouse_;

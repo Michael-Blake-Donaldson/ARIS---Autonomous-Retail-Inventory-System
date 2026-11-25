@@ -30,6 +30,7 @@ class Panels {
     LiveAction action{LiveAction::none};
     bool developer_truth{};
     bool map_only{};
+    bool lidar_dropout{};
     bool rebuild{};
     bool search_ready{};
     bool audit_ready{};
@@ -45,7 +46,7 @@ class Panels {
   private:
     void panel_contents(const LiveFrame &frame, bool focused);
     void overview(const LiveFrame &frame, bool focused);
-    void map();
+    void map(const LiveFrame &frame, bool focused);
     void find();
     void audit();
     void missions();

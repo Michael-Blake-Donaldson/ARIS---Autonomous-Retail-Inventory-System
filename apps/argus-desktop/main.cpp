@@ -294,32 +294,50 @@ class Tour {
                 return false;
             }
             ui.camera.mode = CameraMode::follow;
+            ui.lidar_dropout = true;
             break;
         case 2:
+            saw_dropout_ = frame.map.scan == ScanState::stale && frame.navigation &&
+                           frame.navigation->state == navigation::State::waiting &&
+                           frame.navigation->reason == navigation::Reason::stale_scan &&
+                           frame.telemetry.commanded.linear.value() == 0.0;
+            if (!saw_dropout_) {
+                return false;
+            }
+            ui.lidar_dropout = false;
+            break;
+        case 3:
+            saw_recovery_ = frame.map.scan == ScanState::fresh && frame.navigation &&
+                            frame.navigation->reason != navigation::Reason::stale_scan;
+            if (!saw_recovery_) {
+                return false;
+            }
+            break;
+        case 4:
             ui.panel = Panel::find_product;
             ui.camera.mode = CameraMode::orbit;
             ready = ui.queue({JobKind::lookup, "990-01-0001"});
             break;
-        case 3:
+        case 5:
             ready = ui.has_catalog_result() && ui.queue({JobKind::find, "990-01-0001"});
             break;
-        case 4:
+        case 6:
             ui.panel = Panel::inventory_audit;
             ui.overlays.antenna = true;
             ready = ui.search_ready && ui.queue({JobKind::audit, "SOFTLINES"});
             break;
-        case 5:
+        case 7:
             ui.panel = Panel::missions;
             ready = ui.audit_ready && ui.queue({JobKind::scan_mission});
             break;
-        case 6:
+        case 8:
             ready = completed(ui, mission::Workflow::scan_all) && ui.queue({JobKind::dock_mission});
             break;
-        case 7:
+        case 9:
             ready = completed(ui, mission::Workflow::dock) &&
                     ui.queue({JobKind::inspect_mission, "TECH"});
             break;
-        case 8:
+        case 10:
             if (!ui.latest_mission() ||
                 ui.latest_mission()->intent.workflow != mission::Workflow::inspect ||
                 ui.latest_mission()->state != mission::State::executing) {
@@ -328,25 +346,25 @@ class Tour {
             }
             ready = ui.queue({JobKind::confirm_inspection, {}, {}, ui.latest_mission()->intent.id});
             break;
-        case 9:
+        case 11:
             if (!completed(ui, mission::Workflow::inspect)) {
                 ready = false;
                 break;
             }
             ui.panel = Panel::history;
             break;
-        case 10:
+        case 12:
             ui.panel = Panel::settings;
             ui.camera.mode = CameraMode::plan;
             resized_ = mode_ != Mode::smoke || SDL_SetWindowSize(window, 1120, 720);
             break;
-        case 11:
+        case 13:
             ui.panel = Panel::diagnostics;
             ui.camera.mode = CameraMode::orbit;
             ui.developer_truth = true;
             ui.rebuild = true;
             break;
-        case 12:
+        case 14:
             ui.panel = Panel::overview;
             isolated_ = !truth_visible(ui.panel, ui.developer_truth);
             break;
@@ -384,11 +402,12 @@ class Tour {
         auto &output = mode_ == Mode::record ? std::cerr : std::cout;
         output << "{\"workflowTour\":" << std::boolalpha << finished_
                << ",\"movingObserved\":" << moved_ << ",\"truthIsolated\":" << isolated_
-               << ",\"resized\":" << resized_ << ",\"contextRebuilt\":" << rebuilt_
-               << ",\"frames\":" << samples_.size() << ",\"maxVisibleCatalogRows\":" << max_rows_
-               << ",\"frameP95Ms\":" << p95 << "}\n";
-        return finished_ && moved_ && isolated_ && resized_ && rebuilt_ && samples_.size() >= 30 &&
-               max_rows_ > 0 && max_rows_ < 40 && p95 < 50.0;
+               << ",\"lidarDropoutHeld\":" << saw_dropout_
+               << ",\"lidarRecovered\":" << saw_recovery_ << ",\"resized\":" << resized_
+               << ",\"contextRebuilt\":" << rebuilt_ << ",\"frames\":" << samples_.size()
+               << ",\"maxVisibleCatalogRows\":" << max_rows_ << ",\"frameP95Ms\":" << p95 << "}\n";
+        return finished_ && moved_ && isolated_ && saw_dropout_ && saw_recovery_ && resized_ &&
+               rebuilt_ && samples_.size() >= 30 && max_rows_ > 0 && max_rows_ < 40 && p95 < 50.0;
     }
 
   private:
@@ -404,6 +423,8 @@ class Tour {
     unsigned stage_{};
     bool finished_{};
     bool moved_{};
+    bool saw_dropout_{};
+    bool saw_recovery_{};
     bool resized_{};
     bool rebuilt_{};
     bool isolated_{};
@@ -465,7 +486,8 @@ app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_sc
             last_step += due * robot::step_ms;
         }
         for (std::uint64_t index = 0; index < due; ++index) {
-            engine.step(controls.command(), std::exchange(ui.action, LiveAction::none), focused);
+            engine.step(controls.command(), std::exchange(ui.action, LiveAction::none), focused,
+                        ui.lidar_dropout);
         }
         if (std::exchange(ui.rebuild, false)) {
             controls.disarm();

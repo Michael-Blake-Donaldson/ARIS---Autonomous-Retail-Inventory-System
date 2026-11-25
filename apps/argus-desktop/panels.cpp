@@ -220,8 +220,8 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     ImGui::Spacing();
     ImGui::Separator();
     quiet("Live robot");
-    if (ImGui::Button(frame.exploring ? "Pause exploration" : "Explore", {-1, 0})) {
-        request(frame.exploring ? LiveAction::pause : LiveAction::explore);
+    if (ImGui::Button(frame.exploring() ? "Pause exploration" : "Explore", {-1, 0})) {
+        request(frame.exploring() ? LiveAction::pause : LiveAction::explore);
     }
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.44F, 0.16F, 0.21F, 1.0F});
     if (ImGui::Button("Emergency stop", {-1, 0})) {
@@ -260,11 +260,15 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     ImGui::End();
 
     pane("##footer", {0, size.y - footer}, {size.x, footer}, ImGuiWindowFlags_NoScrollbar);
-    ImGui::TextColored(teal, "%s", frame.exploring ? "AUTONOMOUS" : "MANUAL");
+    ImGui::TextColored(teal, "%s", frame.exploring() ? "AUTONOMOUS" : "MANUAL");
     ImGui::SameLine();
     ImGui::Text("Sample %llu", static_cast<unsigned long long>(frame.telemetry.sample_tick));
     ImGui::SameLine();
-    ImGui::Text("LiDAR %u returns", frame.lidar ? frame.lidar->return_count : 0);
+    if (frame.map.scan == ScanState::fresh && frame.lidar) {
+        ImGui::Text("LiDAR %u returns", frame.lidar->return_count);
+    } else {
+        quiet(frame.map.scan == ScanState::stale ? "LiDAR stale" : "LiDAR unavailable");
+    }
     ImGui::SameLine();
     ImGui::Text("RFID %zu reads", frame.rfid_reads);
     ImGui::SameLine();
@@ -281,7 +285,7 @@ void Panels::panel_contents(const LiveFrame &frame, bool focused) {
         overview(frame, focused);
         break;
     case Panel::live_map:
-        map();
+        map(frame, focused);
         break;
     case Panel::find_product:
         find();
@@ -331,7 +335,56 @@ void Panels::overview(const LiveFrame &frame, bool focused) {
     quiet("X stops · R clears the stop");
 }
 
-void Panels::map() {
+void Panels::map(const LiveFrame &frame, bool focused) {
+    title("Scan and localization");
+    switch (frame.map.scan) {
+    case ScanState::powered_off:
+        quiet("LiDAR power off");
+        break;
+    case ScanState::waiting:
+        quiet("Waiting for the first LiDAR scan");
+        break;
+    case ScanState::fresh:
+    case ScanState::stale: {
+        const bool fresh = frame.map.scan == ScanState::fresh;
+        ImGui::TextColored(fresh ? teal : amber, "LiDAR %s   %llu ms old",
+                           fresh ? "fresh" : "stale",
+                           static_cast<unsigned long long>(frame.map.scan_age_ms.value_or(0)));
+        break;
+    }
+    }
+    if (frame.map.pose == PoseState::waiting) {
+        quiet("Waiting for odometry");
+    } else {
+        const bool current = frame.map.pose == PoseState::current;
+        ImGui::TextColored(current ? teal : amber, "%s",
+                           current ? "Localization current" : "Localization uncertain");
+    }
+    if (frame.estimate) {
+        ImGui::Text("Error bounds %.2f m   %.2f rad", frame.estimate->distance_error_m,
+                    frame.estimate->heading_error_rad);
+    }
+
+    title("Navigation");
+    if (frame.telemetry.emergency_latched) {
+        ImGui::TextColored(amber, "Emergency stop latched");
+    } else if (!focused) {
+        quiet("Motion disarmed");
+    } else if (frame.navigation) {
+        ImGui::TextUnformatted(describe(frame.navigation->state));
+        if (frame.navigation->reason != navigation::Reason::none) {
+            ImGui::TextWrapped("%s", describe(frame.navigation->reason));
+        }
+    } else {
+        quiet(frame.telemetry.collision_blocked ? "Collision guard active" : "Manual control");
+    }
+    if (frame.navigation) {
+        ImGui::Text("Yields %u   Replans %u", frame.navigation->yields, frame.navigation->replans);
+        if (frame.navigation->last_replan) {
+            ImGui::TextWrapped("Last replan: %s", describe(*frame.navigation->last_replan));
+        }
+    }
+
     title("Layers");
     ImGui::Checkbox("LiDAR returns", &overlays.lidar);
     ImGui::Checkbox("Estimated occupancy", &overlays.occupancy);
@@ -343,6 +396,8 @@ void Panels::map() {
         overlays.occupancy = true;
         camera.mode = CameraMode::plan;
     }
+    ImGui::Spacing();
+    ImGui::Checkbox("Simulate LiDAR dropout", &lidar_dropout);
 }
 
 void Panels::find() {
@@ -562,7 +617,7 @@ void Panels::settings() {
 
 void Panels::diagnostics(const LiveFrame &frame) {
     title("Sensor quality");
-    ImGui::Text("Navigation   %s", frame.navigation.data());
+    ImGui::Text("Navigation   %s", frame.navigation ? describe(frame.navigation->state) : "Manual");
     ImGui::Text("Position bound %.3f m", frame.telemetry.wheels.distance_error_m);
     ImGui::Text("Heading bound %.3f rad", frame.telemetry.wheels.heading_error_rad);
     title("Developer view");

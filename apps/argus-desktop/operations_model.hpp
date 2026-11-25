@@ -1,11 +1,13 @@
 #pragma once
 
-#include "argus/mapping/grid.hpp"
+#include "argus/navigation/navigator.hpp"
 #include "argus/robot/control.hpp"
 #include "argus/sensors/observations.hpp"
 #include "argus/world/snapshot.hpp"
 
 #include <array>
+#include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -72,6 +74,21 @@ struct Layout {
     std::vector<world::ZoneView> zones;
 };
 
+enum class ScanState { powered_off, waiting, fresh, stale };
+enum class PoseState { waiting, current, uncertain };
+
+struct MapStatus {
+    ScanState scan;
+    std::optional<std::uint64_t> scan_age_ms;
+    PoseState pose;
+};
+
+[[nodiscard]] MapStatus map_status(robot::Telemetry telemetry, const sensors::LidarScan *scan,
+                                   const std::optional<mapping::Estimate> &pose) noexcept;
+[[nodiscard]] const char *describe(navigation::Reason reason) noexcept;
+[[nodiscard]] const char *describe(navigation::State state) noexcept;
+[[nodiscard]] const char *describe(navigation::ReplanCause cause) noexcept;
+
 struct LiveFrame {
     robot::Telemetry telemetry;
     const mapping::Grid &grid;
@@ -80,8 +97,12 @@ struct LiveFrame {
     std::span<const mapping::Point> trace;
     std::size_t rfid_reads;
     std::size_t unique_epcs;
-    std::string_view navigation;
-    bool exploring;
+    MapStatus map;
+    std::optional<mapping::Estimate> estimate;
+    std::optional<navigation::Progress> navigation;
+    [[nodiscard]] bool exploring() const noexcept {
+        return navigation && navigation->state != navigation::State::finished;
+    }
 };
 
 struct DiagnosticsFrame {

@@ -200,7 +200,7 @@ void Scene::draw_overlays(const LiveFrame &frame, const Overlays &overlays,
     if (overlays.route) {
         trace(frame.route, {255, 182, 104, 255}, 0.085);
     }
-    if (overlays.lidar && frame.lidar) {
+    if (overlays.lidar && frame.map.scan == ScanState::fresh && frame.lidar) {
         const auto origin = position(frame.lidar->header.estimated_pose);
         auto angle =
             frame.lidar->header.estimated_pose.heading.value() + frame.lidar->first_angle_rad;
@@ -284,8 +284,11 @@ void Scene::draw(Viewport viewport, const LiveFrame &frame, const Camera &camera
         box(temporary_, true_pose.x_m - radius, true_pose.y_m - radius, radius * 2, radius * 2,
             0.03, 0.10, {231, 98, 188, 255});
     }
+    const auto pose_color = frame.map.pose == PoseState::current     ? Color{120, 229, 209, 255}
+                            : frame.map.pose == PoseState::uncertain ? Color{244, 159, 82, 255}
+                                                                     : Color{157, 175, 187, 255};
     box(temporary_, robot.x_m - radius * 0.72, robot.y_m - radius * 0.72, radius * 1.44,
-        radius * 1.44, 0.12, 0.21, {120, 229, 209, 255});
+        radius * 1.44, 0.12, 0.21, pose_color);
     box(temporary_, robot.x_m - radius * 0.26, robot.y_m - radius * 0.26, radius * 0.52,
         radius * 0.52, 0.33, 0.23, {218, 253, 240, 255});
     submit(temporary_, GL_QUADS);
