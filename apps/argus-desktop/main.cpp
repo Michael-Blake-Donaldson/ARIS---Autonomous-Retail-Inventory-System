@@ -128,7 +128,11 @@ class Graphics {
             demo_scene && !frame.archived ? ui.regions() : std::span<const EvidenceRegion>{};
         const auto overlays =
             frame.archived ? Overlays{.lidar = false, .occupancy = true} : ui.overlays;
-        scene.draw(viewport, frame, ui.camera, overlays, regions, developer ? &*developer : nullptr,
+        auto camera = ui.camera;
+        if (frame.archived && camera.mode == CameraMode::follow) {
+            camera.mode = CameraMode::plan;
+        }
+        scene.draw(viewport, frame, camera, overlays, regions, developer ? &*developer : nullptr,
                    frame.archived || ui.map_only);
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
         if (recorder && !recorder->capture(width, height)) {
@@ -402,6 +406,7 @@ class Tour {
             ready = ui.save();
             break;
         case 16:
+            ui.camera.mode = CameraMode::follow;
             ready = ui.saved_ready() && ui.queue({JobKind::reopen_run});
             break;
         case 17:
