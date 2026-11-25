@@ -77,7 +77,7 @@ function Invoke-Portable {
             try { $file.CopyTo($process.StandardInput.BaseStream) }
             finally { $file.Dispose(); $process.StandardInput.Close() }
         }
-        if (!$process.WaitForExit(70_000)) {
+        if (!$process.WaitForExit(70000)) {
             $process.Kill($true)
             throw "$Name exceeded the acceptance timeout."
         }
