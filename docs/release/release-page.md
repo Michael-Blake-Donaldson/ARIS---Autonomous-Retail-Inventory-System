@@ -6,7 +6,9 @@ ARGUS is an offline C++20 simulator for retail stockroom mapping and probabilist
 
 **Target environment** Windows 11 x64 with an interactive OpenGL-capable desktop. CLI workflows can run without graphics. The verification report identifies the tested machine and open fresh-machine gate.
 
-**Media** Attach the operations-center screenshot and the native workflow clip. The clip shows the simulation window and scripted operations. The walkthrough below combines the desktop and CLI for the complete workflow.
+**Media** The prepared release assets are `ARGUS-0.1.0-operations-center.png` and `ARGUS-0.1.0-workflow-tour.mp4`. The clip shows the native simulation window and scripted operations. The walkthrough below combines the desktop and CLI for the complete workflow.
+
+![Inventory audit in the ARGUS operations center](../testing/evidence/phase-10-operations-center.png)
 
 ## Changes and verification
 
