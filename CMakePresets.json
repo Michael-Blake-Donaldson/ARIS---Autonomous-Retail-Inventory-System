@@ -34,6 +34,11 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "windows-package",
+      "inherits": "windows-release",
+      "cacheVariables": { "ARGUS_PACKAGE_WINDOWS": "ON" }
+    },
+    {
       "name": "linux-ci",
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
@@ -68,6 +73,7 @@
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-package", "configurePreset": "windows-package" },
     { "name": "linux-ci", "configurePreset": "linux-ci" },
     {
       "name": "linux-fuzz",
