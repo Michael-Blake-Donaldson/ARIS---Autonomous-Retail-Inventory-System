@@ -2,6 +2,8 @@
 
 ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and RFID inventory audits. Drive the simulated robot in the Windows 3D operations center or run autonomous exploration from the command line. The headless executable can export and reload estimated maps.
 
+For a verified Windows portable ZIP, follow the [installation and walkthrough guide](docs/release/onboarding.md). Developers can use the [architecture and API guide](docs/release/architecture.md).
+
 ## Build and test
 
 Install Git, CMake 3.25 or later, and Ninja. On Windows, install Visual Studio 2022 with the Desktop development with C++ workload and a Windows SDK. Run the following from an x64 Native Tools Command Prompt at the repository root.
