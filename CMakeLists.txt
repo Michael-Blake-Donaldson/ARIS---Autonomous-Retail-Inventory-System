@@ -169,6 +169,7 @@ if(BUILD_TESTING)
         "-DARGUS_CATALOG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory"
         "-DARGUS_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/mission-cli-tests"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/mission_cli.cmake")
+    set_tests_properties(argus-mission.cli PROPERTIES TIMEOUT 90)
 
     add_executable(argus-map-evaluation tests/evaluation/map_evaluation.cpp)
     target_link_libraries(argus-map-evaluation PRIVATE argus_mapping argus_sensors)
@@ -185,6 +186,7 @@ if(BUILD_TESTING)
         nlohmann_json::nlohmann_json)
     argus_project_target(argus-scale-evaluation)
     add_test(NAME argus-scale-evaluation COMMAND argus-scale-evaluation 10000 200)
+    set_tests_properties(argus-scale-evaluation PROPERTIES TIMEOUT 90)
 
     function(argus_cli_smoke target)
         add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"
