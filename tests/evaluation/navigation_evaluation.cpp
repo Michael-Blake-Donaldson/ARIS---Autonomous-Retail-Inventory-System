@@ -217,6 +217,7 @@ int main() {
                    complete.blocked_moves == 0 &&
                    complete.progress.reason == navigation::Reason::no_frontiers &&
                    cart.progress.moving_yields > 0 && cart.progress.replans > 0 &&
+                   cart.progress.last_replan.has_value() &&
                    cart.progress.reason == navigation::Reason::docked &&
                    inaccessible.progress.reason == navigation::Reason::dock_unreachable &&
                    inaccessible.distance_m == 0.0

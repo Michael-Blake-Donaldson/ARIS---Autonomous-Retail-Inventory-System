@@ -20,6 +20,9 @@ struct Destination {
 };
 
 enum class State { waiting, exploring, yielding, returning, finished };
+inline constexpr std::uint64_t max_scan_age_ticks = 3;
+inline constexpr std::uint64_t max_pose_age_ticks = 2;
+enum class ReplanCause { obstacle, unsafe_route, waypoint_timeout };
 enum class Reason {
     none,
     stale_scan,
@@ -47,6 +50,7 @@ struct Progress {
     std::uint32_t moving_yields{};
     std::uint32_t replans{};
     std::uint32_t stuck{};
+    std::optional<ReplanCause> last_replan;
 };
 
 [[nodiscard]] std::string_view label(State state) noexcept;

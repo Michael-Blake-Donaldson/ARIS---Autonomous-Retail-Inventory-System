@@ -386,6 +386,9 @@ robot::Command Navigator::follow(const mapping::Grid &grid, Cell start,
         }
         if (tick - blocked_since_ >= retry_interval || tick - waypoint_since_ >= waypoint_timeout) {
             ++progress_.replans;
+            progress_.last_replan = obstacle      ? ReplanCause::obstacle
+                                    : unsafe_edge ? ReplanCause::unsafe_route
+                                                  : ReplanCause::waypoint_timeout;
             ++progress_.stuck;
             if (returning_) {
                 if (++return_retries_ >= 3) {
@@ -439,12 +442,13 @@ robot::Command Navigator::update(const mapping::Mapper &mapper, robot::Telemetry
     control_tick_ = tick;
     if (!estimate || !estimate->reliable || !finite(estimate->pose) ||
         !finite(telemetry.estimated_pose) || estimate->sample_tick > tick ||
-        tick - estimate->sample_tick > 2 || !(std::abs(telemetry.measured.linear.value()) <= 5.0) ||
+        tick - estimate->sample_tick > max_pose_age_ticks ||
+        !(std::abs(telemetry.measured.linear.value()) <= 5.0) ||
         !(std::abs(telemetry.measured.angular.value()) <= 10.0)) {
         return stop(State::waiting, Reason::uncertain_pose);
     }
     if (!telemetry.sensors_powered || !scan || scan->header.sample_tick > tick ||
-        tick - scan->header.sample_tick > 3 || !observe(*scan)) {
+        tick - scan->header.sample_tick > max_scan_age_ticks || !observe(*scan)) {
         return stop(State::waiting, Reason::stale_scan);
     }
     if (returning_ && settings_.dock && telemetry.docked) {
