@@ -1,5 +1,9 @@
 #include "panels.hpp"
 
+#include "argus/mapping/map_io.hpp"
+
+#include <sstream>
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -121,11 +125,64 @@ void configure_style() {
 }
 
 void Panels::poll() {
+    if (std::exchange(close_review_pending_, false)) {
+        close_review();
+    }
+    if (!live_) {
+        if (auto preview = workbench_.preview()) {
+            preview_ = std::move(preview);
+        }
+    } else if (const auto id = live_->frame().run; id != run_) {
+        run_ = id;
+        search_session_ = audit_session_ = 0;
+        audit_json_.clear();
+        report_.reset();
+        regions_.clear();
+        search_ready = audit_ready = saved_ready_ = archive_ready_ = false;
+        mission_run_.reset();
+    }
     auto result = workbench_.take();
     if (!result) {
         return;
     }
     status_ = std::move(result->status);
+    const bool returned_live = static_cast<bool>(result->live);
+    if (returned_live) {
+        live_ = std::move(result->live);
+        preview_.reset();
+    }
+    if (result->kind == JobKind::save_run) {
+        saved_ready_ = status_ == "Run evidence saved";
+    }
+    if (result->archive) {
+        auto &archive = *result->archive;
+        const auto current = live_->frame();
+        std::istringstream bytes{archive.map};
+        auto loaded = mapping::load(bytes, current.grid.spec());
+        if (auto *grid = std::get_if<mapping::Grid>(&loaded);
+            grid && archive.scenario == current.grid.spec().scenario) {
+            LiveFrame saved_frame{.telemetry = {.sample_tick = archive.sample_tick},
+                                  .grid = *grid,
+                                  .lidar = nullptr,
+                                  .route = {},
+                                  .trace = {},
+                                  .rfid_reads = 0,
+                                  .unique_epcs = 0,
+                                  .map = {},
+                                  .estimate = {},
+                                  .navigation = {},
+                                  .run = archive.id,
+                                  .archived = true};
+            saved_map_.emplace(saved_frame);
+            saved_ = std::move(archive);
+            saved_review_text_ = std::move(result->review_text);
+            live_->finish_job(false);
+            archive_ready_ = true;
+            panel = Panel::history;
+        } else {
+            status_ = "Saved map is damaged or belongs to another warehouse";
+        }
+    }
     if (result->kind == JobKind::catalog && !benchmark_) {
         catalog_cursor_ = result->products.size() == inventory::page_size
                               ? std::optional{result->products.back().id}
@@ -143,6 +200,19 @@ void Panels::poll() {
         search_ready = search_ready || result->kind == JobKind::find;
         audit_ready = audit_ready || result->kind == JobKind::audit;
         report_ = std::move(result->audit);
+        if (result->kind == JobKind::find) {
+            search_session_ = report_->session.value();
+        } else if (result->kind == JobKind::audit) {
+            audit_session_ = 0;
+            audit_json_.clear();
+            std::ostringstream report;
+            if (std::holds_alternative<std::monostate>(
+                    audit::write_report(report, *report_, audit::Export::json)) &&
+                report.view().size() <= mission::archived_report_limit) {
+                audit_session_ = report_->session.value();
+                audit_json_ = std::move(report).str();
+            }
+        }
         regions_.clear();
         for (const auto &row : report_->rows) {
             if (!row.evidence || row.finding == audit::Finding::supported) {
@@ -160,12 +230,35 @@ void Panels::poll() {
         mission_ready = true;
         mission_ = std::move(result->mission);
         events_ = std::move(result->events);
+        if (returned_live) {
+            mission_run_ = run_;
+        }
     }
 }
 
 bool Panels::queue(Job job) {
     const auto kind = job.kind;
-    if (!workbench_.submit(std::move(job))) {
+    if (pending_ || reviewing()) {
+        return false;
+    }
+    const bool motion = kind == JobKind::find || kind == JobKind::audit ||
+                        kind == JobKind::scan_mission || kind == JobKind::dock_mission ||
+                        kind == JobKind::inspect_mission;
+    if (motion) {
+        if (mission_ && !mission::terminal(mission_->state)) {
+            status_ = "Finish or cancel the existing mission before starting routed work";
+            return false;
+        }
+        if (!routed_ || !live_ || lidar_dropout || live_->frame().telemetry.emergency_latched) {
+            status_ = !routed_ ? "Routed work uses the RFID audit warehouse"
+                               : "Clear the stop and LiDAR fault before starting routed work";
+            return false;
+        }
+        if (workbench_.busy()) {
+            return false;
+        }
+        pending_.emplace(std::move(job));
+    } else if (!workbench_.submit(std::move(job))) {
         return false;
     }
     if (kind == JobKind::scan_mission || kind == JobKind::dock_mission ||
@@ -173,8 +266,67 @@ bool Panels::queue(Job job) {
         kind == JobKind::cancel_mission) {
         mission_ready = false;
     }
-    status_ = "Running in the warehouse simulator";
+    status_ = motion ? "Running on the live robot" : "Working";
     return true;
+}
+
+void Panels::dispatch() {
+    if (!pending_) {
+        return;
+    }
+    auto job = std::exchange(pending_, std::nullopt).value();
+    if (lidar_dropout || live_->frame().telemetry.emergency_latched) {
+        status_ = "Routed work held before dispatch";
+        return;
+    }
+    preview_ = std::make_shared<ObservedFrame>(live_->frame());
+    job_start_tick_ = preview_->telemetry.sample_tick;
+    job.live = std::move(live_);
+    if (!workbench_.submit(std::move(job))) {
+        live_ = std::move(job.live);
+        preview_.reset();
+        status_ = "Live run is busy";
+    }
+}
+
+void Panels::cancel_pending() noexcept { pending_.reset(); }
+
+LiveFrame Panels::frame() const noexcept {
+    if (saved_map_) {
+        return saved_map_->view();
+    }
+    return live_ ? live_->frame() : preview_->view();
+}
+
+bool Panels::save() {
+    if (!live_ || reviewing() || audit_json_.empty() || busy()) {
+        return false;
+    }
+    const auto current = live_->frame();
+    std::ostringstream bytes;
+    if (!std::holds_alternative<std::monostate>(mapping::save(current.grid, bytes))) {
+        status_ = "Map could not be saved";
+        return false;
+    }
+    saved_ready_ = false;
+    Job job{JobKind::save_run};
+    job.archive =
+        mission::SavedRun{current.run,
+                          current.grid.spec().scenario,
+                          current.telemetry.sample_tick,
+                          mission_ && mission_run_ == current.run ? mission_->intent.id.value() : 0,
+                          search_session_,
+                          audit_session_,
+                          std::move(bytes).str(),
+                          audit_json_};
+    return queue(std::move(job));
+}
+
+void Panels::close_review() noexcept {
+    saved_map_.reset();
+    saved_.reset();
+    saved_review_text_.clear();
+    archive_ready_ = false;
 }
 
 void Panels::seed_benchmark() {
@@ -211,17 +363,24 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
 
     pane("##nav", {0, header}, {left, body});
     title("Workspace");
+    ImGui::BeginDisabled(reviewing());
     for (std::size_t index = 0; index < panel_names.size(); ++index) {
         if (ImGui::Selectable(panel_names[index].data(), static_cast<std::size_t>(panel) == index,
                               0, {0, 30.0F})) {
             panel = static_cast<Panel>(index);
         }
     }
+    ImGui::EndDisabled();
     ImGui::Spacing();
     ImGui::Separator();
     quiet("Live robot");
+    ImGui::BeginDisabled(worker_driving() || reviewing());
     if (ImGui::Button(frame.exploring() ? "Pause exploration" : "Explore", {-1, 0})) {
         request(frame.exploring() ? LiveAction::pause : LiveAction::explore);
+    }
+    ImGui::EndDisabled();
+    if (worker_driving() && ImGui::Button("Hold routed work", {-1, 0})) {
+        interrupt();
     }
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.44F, 0.16F, 0.21F, 1.0F});
     if (ImGui::Button("Emergency stop", {-1, 0})) {
@@ -233,11 +392,17 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     const Canvas canvas{left, header, std::max(1.0F, size.x - left - right), body};
     pane("##warehouse", {canvas.x, canvas.y}, {canvas.width, canvas.height},
          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
-    heading(map_only ? "Estimated occupancy" : "Live warehouse", 22.0F);
-    if (truth_visible(panel, developer_truth) && !map_only) {
+    heading(frame.archived ? "Saved occupancy"
+            : map_only     ? "Estimated occupancy"
+                           : "Live warehouse",
+            22.0F);
+    if (!frame.archived && !worker_driving() && truth_visible(panel, developer_truth) &&
+        !map_only) {
         ImGui::TextColored(amber, "SIMULATED TRUTH OVERLAY");
-    } else {
+    } else if (!frame.archived) {
         quiet("Observed robot pose and sensor returns");
+    } else {
+        quiet("Captured map evidence");
     }
     camera_picker(camera);
     const auto remaining = ImGui::GetContentRegionAvail();
@@ -254,13 +419,33 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     ImGui::End();
 
     pane("##details", {size.x - right, header}, {right, body});
-    heading(panel_names[static_cast<std::size_t>(panel)]);
+    heading(frame.archived ? "Lineage / History" : panel_names[static_cast<std::size_t>(panel)]);
     ImGui::Separator();
-    panel_contents(frame, focused);
+    if (worker_driving() && panel != Panel::live_map) {
+        const auto elapsed = frame.telemetry.sample_tick - job_start_tick_;
+        ImGui::Text("Live robot   %.1f s elapsed",
+                    static_cast<double>(elapsed) * robot::step_ms / 1000.0);
+        if (frame.navigation) {
+            quiet(describe(frame.navigation->state));
+            if (frame.navigation->reason != navigation::Reason::none) {
+                ImGui::TextWrapped("%s", describe(frame.navigation->reason));
+            }
+        }
+        ImGui::Separator();
+    }
+    if (frame.archived) {
+        history();
+    } else {
+        panel_contents(frame, focused);
+    }
     ImGui::End();
 
     pane("##footer", {0, size.y - footer}, {size.x, footer}, ImGuiWindowFlags_NoScrollbar);
-    ImGui::TextColored(teal, "%s", frame.exploring() ? "AUTONOMOUS" : "MANUAL");
+    ImGui::TextColored(teal, "%s",
+                       frame.archived      ? "SAVED RUN"
+                       : worker_driving()  ? "ROUTED WORK"
+                       : frame.exploring() ? "AUTONOMOUS"
+                                           : "MANUAL");
     ImGui::SameLine();
     ImGui::Text("Sample %llu", static_cast<unsigned long long>(frame.telemetry.sample_tick));
     ImGui::SameLine();
@@ -568,7 +753,7 @@ void Panels::missions() {
     }
     ImGui::EndDisabled();
     if (mission_) {
-        title("Latest mission");
+        title(mission_run_ == run_ ? "Latest mission" : "Earlier mission");
         ImGui::Text("%s · %s", mission::label(mission_->intent.workflow).data(),
                     mission::label(mission_->state).data());
         ImGui::Text("%llu / %llu views",
@@ -580,6 +765,38 @@ void Panels::missions() {
 }
 
 void Panels::history() {
+    if (saved_) {
+        title("Saved run");
+        if (ImGui::Button("Return to live", {-1, 0})) {
+            // The rendered frame still borrows the archive until the next UI tick.
+            close_review_pending_ = true;
+        }
+        ImGui::Text("Run %llu", static_cast<unsigned long long>(saved_->id.value()));
+        ImGui::Text("Search session %llu", static_cast<unsigned long long>(saved_->search_session));
+        ImGui::Text("Audit session %llu", static_cast<unsigned long long>(saved_->audit_session));
+        if (saved_->mission) {
+            ImGui::Text("Mission %llu", static_cast<unsigned long long>(saved_->mission));
+        }
+        if (ImGui::Button("Copy audit JSON", {-1, 0})) {
+            ImGui::SetClipboardText(saved_->report.c_str());
+        }
+        auto &text = saved_review_text_.empty() ? saved_->report : saved_review_text_;
+        ImGui::InputTextMultiline("##saved-report", text.data(), text.size() + 1, {-1, 180},
+                                  ImGuiInputTextFlags_ReadOnly);
+        return;
+    }
+    title("Run evidence");
+    ImGui::Text("Run %llu", static_cast<unsigned long long>(run_.value()));
+    ImGui::BeginDisabled(audit_json_.empty() || busy());
+    if (ImGui::Button("Save map and audit", {-1, 0})) {
+        static_cast<void>(save());
+    }
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(busy());
+    if (ImGui::Button("Open saved run", {-1, 0})) {
+        static_cast<void>(queue({JobKind::reopen_run}));
+    }
+    ImGui::EndDisabled();
     title("Mission transitions");
     if (!mission_) {
         quiet("Run a mission to see its history here.");

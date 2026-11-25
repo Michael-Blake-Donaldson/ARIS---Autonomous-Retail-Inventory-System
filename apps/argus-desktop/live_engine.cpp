@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <utility>
 
 namespace argus::desktop {
@@ -16,28 +17,58 @@ constexpr std::size_t tag_limit = 1024;
 
 mapping::Point position(robot::Pose pose) noexcept { return {pose.x.value(), pose.y.value()}; }
 
+RunId new_run() {
+    std::random_device entropy;
+    const auto value = (static_cast<std::uint64_t>(entropy()) << 32U) | entropy();
+    return RunId{1 + (value >> 2U)};
+}
+
 } // namespace
+
+ObservedFrame::ObservedFrame(const LiveFrame &frame)
+    : telemetry{frame.telemetry}, grid{frame.grid},
+      lidar{frame.lidar ? std::optional{*frame.lidar} : std::nullopt},
+      route(frame.route.begin(), frame.route.end()), trace(frame.trace.begin(), frame.trace.end()),
+      reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
+      navigation{frame.navigation}, run{frame.run}, archived{frame.archived} {}
+
+LiveFrame ObservedFrame::view() const noexcept {
+    const auto *scan = lidar ? &*lidar : nullptr;
+    return {telemetry, grid,       scan,   route,
+            trace,     reads,      unique, map_status(telemetry, scan, estimate),
+            estimate,  navigation, run,    archived};
+}
 
 LiveEngine::LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
                        simulation::SensorRig sensors, mapping::Mapper mapper, Layout layout)
     : warehouse_{std::move(warehouse)}, initial_{robot}, robot_{std::move(robot)},
-      sensors_{std::move(sensors)}, mapper_{std::move(mapper)}, layout_{std::move(layout)} {
+      sensors_{std::move(sensors)}, mapper_{std::move(mapper)}, layout_{std::move(layout)},
+      id_{new_run()} {
     trace_.reserve(trace_limit);
 }
 
 Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse warehouse,
-                                                    std::uint64_t start_tick) {
+                                                    std::uint64_t start_tick, bool shared_demo) {
     auto declared = warehouse.snapshot(start_tick);
     auto mapper = mapping::Mapper::create(app::map_spec(declared));
     if (const auto *error = std::get_if<mapping::MapError>(&mapper)) {
         return app::Failure{*error};
     }
-    auto robot = simulation::RobotSimulation::create(warehouse, start_tick, {}, {},
-                                                     simulation::warehouse_encoder_effects);
+    simulation::MotionConfig motion;
+    if (shared_demo) {
+        motion.encoder_step_m = 0.0001;
+    }
+    auto robot = simulation::RobotSimulation::create(
+        warehouse, start_tick, motion, {},
+        shared_demo ? simulation::EncoderEffects{} : simulation::warehouse_encoder_effects);
     if (const auto *error = std::get_if<simulation::RobotError>(&robot)) {
         return app::Failure{*error};
     }
-    auto sensors = simulation::SensorRig::create(declared.seed);
+    simulation::SensorConfig config;
+    if (shared_demo) {
+        config.rfid.range_m = 3.5;
+    }
+    auto sensors = simulation::SensorRig::create(declared.seed, config);
     if (const auto *error = std::get_if<simulation::SensorError>(&sensors)) {
         return app::Failure{*error};
     }
@@ -50,10 +81,12 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
 }
 
 void LiveEngine::restart() {
+    id_ = new_run();
     robot_ = initial_;
     sensors_.reset();
     mapper_.reset();
     navigator_.reset();
+    job_progress_.reset();
     lidar_.reset();
     trace_.clear();
     route_.clear();
@@ -88,9 +121,13 @@ void LiveEngine::step(robot::Command manual, LiveAction action, bool armed, bool
     }
     robot_.step(manual);
     capture(lidar_dropout);
+    update_route(navigator_ ? &*navigator_ : nullptr);
+}
+
+void LiveEngine::update_route(const navigation::Navigator *navigator) {
     route_.clear();
-    if (navigator_) {
-        const auto cells = navigator_->route();
+    if (navigator) {
+        const auto cells = navigator->route();
         const auto stride =
             std::max(std::size_t{1}, (cells.size() + route_limit - 1) / route_limit);
         for (std::size_t index = 0; index < cells.size(); index += stride) {
@@ -112,19 +149,27 @@ void LiveEngine::capture(bool lidar_dropout) {
             scan && accepted == mapping::Update::accepted) {
             lidar_ = std::move(*scan);
         } else if (auto *radio = std::get_if<sensors::RfidScan>(&*reading)) {
-            reads_ = std::min(std::size_t{1000000000}, reads_ + radio->reads.size());
-            for (const auto &read : radio->reads) {
-                if (epcs_.size() < tag_limit) {
-                    epcs_.insert(read.epc);
-                }
-            }
+            count_reads(*radio);
         }
     }
     const auto telemetry = robot_.telemetry();
     if (!telemetry.sensors_powered) {
         lidar_.reset();
     }
-    const auto at = position(telemetry.estimated_pose);
+    update_trace();
+}
+
+void LiveEngine::count_reads(const sensors::RfidScan &radio) {
+    reads_ = std::min(std::size_t{1000000000}, reads_ + radio.reads.size());
+    for (const auto &read : radio.reads) {
+        if (epcs_.size() < tag_limit) {
+            epcs_.insert(read.epc);
+        }
+    }
+}
+
+void LiveEngine::update_trace() {
+    const auto at = position(robot_.telemetry().estimated_pose);
     if (trace_.empty() ||
         std::hypot(at.x_m - trace_.back().x_m, at.y_m - trace_.back().y_m) > 0.025) {
         if (trace_.size() == trace_limit) {
@@ -132,6 +177,30 @@ void LiveEngine::capture(bool lidar_dropout) {
         }
         trace_.push_back(at);
     }
+}
+
+simulation::ObservedRun LiveEngine::borrow_run(
+    std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer) {
+    navigator_.reset();
+    return {
+        robot_, sensors_, mapper_, lidar_, std::move(observer), Meters{layout_.radius_mm / 1000.0}};
+}
+
+void LiveEngine::observe_job(const navigation::Navigator &navigator,
+                             const sensors::RfidScan *scan) {
+    if (scan) {
+        count_reads(*scan);
+    }
+    update_trace();
+    job_progress_ = navigator.progress();
+    update_route(&navigator);
+}
+
+void LiveEngine::finish_job(bool emergency) noexcept {
+    job_progress_.reset();
+    navigator_.reset();
+    route_.clear();
+    robot_.step({.emergency_stop = emergency});
 }
 
 LiveFrame LiveEngine::frame() const noexcept {
@@ -146,7 +215,8 @@ LiveFrame LiveEngine::frame() const noexcept {
             epcs_.size(),
             map_status(telemetry, lidar, mapper_.estimate()),
             mapper_.estimate(),
-            navigator_ ? std::optional{navigator_->progress()} : std::nullopt};
+            navigator_ ? std::optional{navigator_->progress()} : job_progress_,
+            id_};
 }
 
 DiagnosticsFrame LiveEngine::diagnostics() const {

@@ -135,7 +135,7 @@ if(WIN32)
     target_compile_definitions(argus-desktop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(argus-desktop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_link_libraries(argus-desktop PRIVATE argus_app argus_operations_model argus_navigation argus_mission_sim
-        argus_audit_sim SDL3::SDL3 OpenGL::GL imgui::imgui)
+        argus_audit_sim SDL3::SDL3 OpenGL::GL imgui::imgui nlohmann_json::nlohmann_json)
     argus_project_target(argus-desktop)
 endif()
 

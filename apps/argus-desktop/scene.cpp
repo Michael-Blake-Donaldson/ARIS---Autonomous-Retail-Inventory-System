@@ -272,6 +272,11 @@ void Scene::draw(Viewport viewport, const LiveFrame &frame, const Camera &camera
         submit(built_, GL_QUADS);
     }
     draw_overlays(frame, overlays, uncertainty);
+    if (frame.archived) {
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        return;
+    }
     temporary_.clear();
     const double radius = layout_.radius_mm / mm;
     if (!map_only && diagnostics) {

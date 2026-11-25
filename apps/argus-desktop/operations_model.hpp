@@ -100,6 +100,8 @@ struct LiveFrame {
     MapStatus map;
     std::optional<mapping::Estimate> estimate;
     std::optional<navigation::Progress> navigation;
+    RunId run{0};
+    bool archived{};
     [[nodiscard]] bool exploring() const noexcept {
         return navigation && navigation->state != navigation::State::finished;
     }

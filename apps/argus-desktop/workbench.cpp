@@ -4,8 +4,10 @@
 #include "operations_fixture.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <random>
 #include <stdexcept>
 #include <utility>
@@ -44,8 +46,43 @@ template <typename T, typename E> T checked(Result<T, E> result) {
     throw std::string{label(std::get<E>(result))};
 }
 
-WorkResult process(Job job, inventory::Repository &catalog, mission::Store &missions,
-                   std::uint64_t &sequence) {
+std::optional<nlohmann::json> archive_report(const mission::SavedRun &saved,
+                                             inventory::Repository &catalog,
+                                             mission::Store &store) {
+    if (saved.report.find('\0') != std::string::npos) {
+        return std::nullopt;
+    }
+    std::size_t events = 0;
+    auto report = nlohmann::json::parse(
+        saved.report,
+        [&](int depth, nlohmann::json::parse_event_t, nlohmann::json &) {
+            if (depth > 16 || ++events > 32768) {
+                throw std::string{"Saved audit report exceeds its review limits"};
+            }
+            return true;
+        },
+        false);
+    if (!report.is_object() || !report.contains("session") ||
+        !report["session"].is_number_unsigned() || report["session"] != saved.audit_session ||
+        !report.contains("request") || !report["request"].is_object() ||
+        !report["request"].contains("mode") || report["request"]["mode"] != "audit" ||
+        !report.contains("items") || !report["items"].is_array()) {
+        return std::nullopt;
+    }
+    const auto session = catalog.session(inventory::SessionId{saved.audit_session});
+    if (!std::holds_alternative<inventory::ScanSession>(session) ||
+        (saved.search_session != 0 &&
+         !std::holds_alternative<inventory::ScanSession>(
+             catalog.session(inventory::SessionId{saved.search_session}))) ||
+        (saved.mission != 0 &&
+         !std::holds_alternative<mission::Record>(store.get(MissionId{saved.mission})))) {
+        return std::nullopt;
+    }
+    return report;
+}
+
+WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &missions,
+                   std::uint64_t &sequence, simulation::ObservedRun *live) {
     WorkResult result{.kind = job.kind};
     const auto next_id = [&] {
         if (sequence >= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -72,13 +109,20 @@ WorkResult process(Job job, inventory::Repository &catalog, mission::Store &miss
         const auto request = job.kind == JobKind::find
                                  ? audit::Request{audit::FindItem{inventory::Dpci{item}, {}}}
                                  : audit::Request{audit::AuditAisle{inventory::AisleId{item}}};
-        result.audit = checked(audit::run_demo(catalog, request, inventory::SessionId{next_id()}));
+        if (!live) {
+            throw std::string{"Choose the RFID audit warehouse for routed work"};
+        }
+        result.audit =
+            checked(audit::run_observed(catalog, request, inventory::SessionId{next_id()}, *live));
         result.status = "Investigation complete";
         break;
     }
     case JobKind::scan_mission:
     case JobKind::dock_mission:
     case JobKind::inspect_mission: {
+        if (!live) {
+            throw std::string{"Choose the RFID audit warehouse for routed work"};
+        }
         const auto workflow = job.kind == JobKind::scan_mission   ? mission::Workflow::scan_all
                               : job.kind == JobKind::dock_mission ? mission::Workflow::dock
                                                                   : mission::Workflow::inspect;
@@ -89,11 +133,38 @@ WorkResult process(Job job, inventory::Repository &catalog, mission::Store &miss
             intent.aisle = inventory::AisleId{std::move(job.text)};
         }
         result.mission = checked(missions.submit(intent));
-        auto executed = checked(mission::run_demo(missions, &catalog));
+        job.subject = intent.id;
+        auto executed =
+            checked(mission::run_observed(missions, &catalog, *live, {.expected = intent.id}));
         if (executed.record) {
             result.mission = std::move(executed.record);
+            result.status = "Mission recorded";
+        } else {
+            result.mission = checked(missions.cancel(intent.id));
+            result.status = "Another mission is ahead of this run";
         }
-        result.status = "Mission recorded";
+        break;
+    }
+    case JobKind::save_run:
+        if (!job.archive || !archive_report(*job.archive, catalog, missions)) {
+            throw std::string{"Run evidence unavailable"};
+        }
+        checked(missions.save_run(*job.archive));
+        result.status = "Run evidence saved";
+        break;
+    case JobKind::reopen_run: {
+        result.archive = checked(missions.saved_run());
+        if (result.archive) {
+            const auto parsed = archive_report(*result.archive, catalog, missions);
+            if (!parsed) {
+                throw std::string{"Saved audit report is damaged or missing its records"};
+            }
+            auto formatted = parsed->dump(2);
+            if (formatted.size() <= mission::archived_report_limit) {
+                result.review_text = std::move(formatted);
+            }
+        }
+        result.status = result.archive ? "Reviewing saved run" : "No saved run";
         break;
     }
     case JobKind::confirm_inspection:
@@ -115,26 +186,42 @@ WorkResult process(Job job, inventory::Repository &catalog, mission::Store &miss
 
 } // namespace
 
-Workbench::Workbench(std::optional<std::filesystem::path> directory)
-    : worker_{[this, directory = std::move(directory)](std::stop_token stop) {
-          run(stop, directory);
+Workbench::Workbench(std::optional<std::filesystem::path> directory, bool paced)
+    : worker_{[this, directory = std::move(directory), paced](std::stop_token stop) {
+          run(stop, directory, paced);
       }} {}
 
 Workbench::~Workbench() {
+    interrupt();
     worker_.request_stop();
     condition_.notify_all();
 }
 
-bool Workbench::submit(Job job) {
+bool Workbench::submit(Job &&job) {
     std::scoped_lock lock{mutex_};
     if (!available_ || busy_ || result_ || job.text.size() > 32 ||
         (job.after && !inventory::valid(*job.after))) {
         return false;
     }
+    interrupted_ = false;
+    emergency_ = false;
+    preview_.reset();
     pending_ = std::move(job);
     busy_ = true;
     condition_.notify_all();
     return true;
+}
+
+std::shared_ptr<const ObservedFrame> Workbench::preview() const {
+    std::scoped_lock lock{mutex_};
+    return preview_;
+}
+
+void Workbench::interrupt(bool emergency) noexcept {
+    if (emergency) {
+        emergency_ = true;
+    }
+    interrupted_ = true;
 }
 
 bool Workbench::busy() const {
@@ -153,7 +240,8 @@ void Workbench::publish(WorkResult result) {
     busy_ = false;
 }
 
-void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::path> &directory) {
+void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::path> &directory,
+                    bool paced) {
     try {
         std::optional<Sandbox> sandbox;
         if (!directory) {
@@ -170,9 +258,7 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
             checked(catalog.insert_catalog(
                 checked(inventory::parse_catalog(catalog_fixture, inventory::Format::csv))));
         }
-        const auto previous = checked(store.latest());
-        auto sequence = std::max(checked(catalog.last_session()),
-                                 previous ? previous->intent.id.value() : std::uint64_t{0});
+        auto sequence = std::max(checked(catalog.last_session()), checked(store.highest_id()));
         while (!stop.stop_requested()) {
             std::unique_lock lock{mutex_};
             if (!condition_.wait(lock, stop, [this] { return pending_.has_value(); })) {
@@ -180,12 +266,48 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
             }
             auto job = std::exchange(pending_, std::nullopt).value();
             lock.unlock();
-            const auto kind = job.kind;
+            WorkResult result{.kind = job.kind};
             try {
-                publish(process(std::move(job), catalog, store, sequence));
+                std::optional<simulation::ObservedRun> observed;
+                if (job.live) {
+                    observed.emplace(job.live->borrow_run(
+                        [&, ticks = 0U](const auto &navigator, const auto *scan) mutable {
+                            job.live->observe_job(navigator, scan);
+                            if (ticks++ % 8U == 0) {
+                                auto frame = std::make_shared<ObservedFrame>(job.live->frame());
+                                std::scoped_lock update{mutex_};
+                                preview_ = std::move(frame);
+                            }
+                            if (paced) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds{1});
+                            }
+                            return !interrupted_.load() && !stop.stop_requested();
+                        }));
+                }
+                result = process(job, catalog, store, sequence, observed ? &*observed : nullptr);
+            } catch (const simulation::RunInterrupted &) {
+                result.status = "Run held by operator";
+                if (job.subject) {
+                    static_cast<void>(store.recover(job.subject));
+                    if (auto current = store.get(*job.subject);
+                        auto *record = std::get_if<mission::Record>(&current)) {
+                        result.mission = std::move(*record);
+                        if (auto journal = store.events(*job.subject);
+                            auto *events = std::get_if<std::vector<mission::Event>>(&journal)) {
+                            result.events = std::move(*events);
+                        }
+                    }
+                }
             } catch (const std::string &error) {
-                publish(WorkResult{.kind = kind, .status = error});
+                result.status = error;
+            } catch (const std::exception &) {
+                result.status = "Run operation failed";
             }
+            if (job.live) {
+                job.live->finish_job(emergency_.load());
+                result.live = std::move(job.live);
+            }
+            publish(std::move(result));
         }
     } catch (...) {
         std::scoped_lock lock{mutex_};

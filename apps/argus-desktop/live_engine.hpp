@@ -4,6 +4,7 @@
 #include "operations_model.hpp"
 
 #include "argus/navigation/navigator.hpp"
+#include "argus/simulation/observed_run.hpp"
 #include "argus/simulation/robot.hpp"
 #include "argus/simulation/sensors.hpp"
 
@@ -11,21 +12,46 @@
 
 namespace argus::desktop {
 
+// Owns the observation-only data for rendering while the worker owns the live run.
+struct ObservedFrame {
+    explicit ObservedFrame(const LiveFrame &frame);
+    [[nodiscard]] LiveFrame view() const noexcept;
+
+    robot::Telemetry telemetry;
+    mapping::Grid grid;
+    std::optional<sensors::LidarScan> lidar;
+    std::vector<mapping::Point> route;
+    std::vector<mapping::Point> trace;
+    std::size_t reads{};
+    std::size_t unique{};
+    std::optional<mapping::Estimate> estimate;
+    std::optional<navigation::Progress> navigation;
+    RunId run;
+    bool archived{};
+};
+
 class LiveEngine {
   public:
-    [[nodiscard]] static Result<LiveEngine, app::Failure> create(simulation::Warehouse warehouse,
-                                                                 std::uint64_t start_tick);
+    [[nodiscard]] static Result<LiveEngine, app::Failure>
+    create(simulation::Warehouse warehouse, std::uint64_t start_tick, bool shared_demo = false);
 
     void step(robot::Command manual, LiveAction action, bool armed, bool lidar_dropout = false);
     [[nodiscard]] const Layout &layout() const noexcept { return layout_; }
     [[nodiscard]] LiveFrame frame() const noexcept;
     [[nodiscard]] DiagnosticsFrame diagnostics() const;
+    [[nodiscard]] simulation::ObservedRun borrow_run(
+        std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer);
+    void observe_job(const navigation::Navigator &navigator, const sensors::RfidScan *scan);
+    void finish_job(bool emergency) noexcept;
 
   private:
     LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
                simulation::SensorRig sensors, mapping::Mapper mapper, Layout layout);
     void capture(bool lidar_dropout);
     void restart();
+    void update_trace();
+    void update_route(const navigation::Navigator *navigator);
+    void count_reads(const sensors::RfidScan &radio);
 
     simulation::Warehouse warehouse_;
     simulation::RobotSimulation initial_;
@@ -34,11 +60,13 @@ class LiveEngine {
     mapping::Mapper mapper_;
     Layout layout_;
     std::optional<navigation::Navigator> navigator_;
+    std::optional<navigation::Progress> job_progress_;
     std::optional<sensors::LidarScan> lidar_;
     std::vector<mapping::Point> route_;
     std::vector<mapping::Point> trace_;
     std::set<std::string, std::less<>> epcs_;
     std::size_t reads_{};
+    RunId id_;
 };
 
 } // namespace argus::desktop

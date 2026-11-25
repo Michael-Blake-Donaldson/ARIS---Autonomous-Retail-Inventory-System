@@ -24,7 +24,7 @@ using namespace argus;
 using namespace argus::desktop;
 using app::Error;
 
-enum class Mode { interactive, smoke, tour, record };
+enum class Mode { interactive, smoke, tour, record, reopen };
 constexpr auto title = "ARGUS Operations Center";
 std::optional<std::filesystem::path> operations_directory;
 
@@ -87,7 +87,7 @@ class Graphics {
 
     void event(const SDL_Event &event) const { ImGui_ImplSDL3_ProcessEvent(&event); }
 
-    bool draw(Scene &scene, const LiveEngine &engine, Panels &ui, bool focused, bool demo_scene,
+    bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
               Recorder *recorder) const {
         int width{};
         int height{};
@@ -103,7 +103,7 @@ class Graphics {
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        const auto frame = engine.frame();
+        const auto frame = ui.frame();
         const auto canvas = ui.draw(frame, focused);
         const auto display = ImGui::GetIO().DisplaySize;
         ImGui::Render();
@@ -116,18 +116,20 @@ class Graphics {
         glClearColor(0.025F, 0.040F, 0.064F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         std::optional<DiagnosticsFrame> developer;
-        if (truth_visible(ui.panel, ui.developer_truth) && !ui.map_only) {
-            developer = engine.diagnostics();
+        if (engine && !frame.archived && truth_visible(ui.panel, ui.developer_truth) &&
+            !ui.map_only) {
+            developer = engine->diagnostics();
         }
         const Viewport viewport{static_cast<int>(canvas.x * sx),
                                 height - static_cast<int>((canvas.y + canvas.height) * sy),
                                 static_cast<int>(canvas.width * sx),
                                 static_cast<int>(canvas.height * sy)};
-        const auto regions = demo_scene && engine.layout().scenario == ScenarioId{801}
-                                 ? ui.regions()
-                                 : std::span<const EvidenceRegion>{};
-        scene.draw(viewport, frame, ui.camera, ui.overlays, regions,
-                   developer ? &*developer : nullptr, ui.map_only);
+        const auto regions =
+            demo_scene && !frame.archived ? ui.regions() : std::span<const EvidenceRegion>{};
+        const auto overlays =
+            frame.archived ? Overlays{.lidar = false, .occupancy = true} : ui.overlays;
+        scene.draw(viewport, frame, ui.camera, overlays, regions, developer ? &*developer : nullptr,
+                   frame.archived || ui.map_only);
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
         if (recorder && !recorder->capture(width, height)) {
             return false;
@@ -166,6 +168,7 @@ class Graphics {
 class Controls {
   public:
     void disarm() noexcept { drive_.disarm(); }
+    [[nodiscard]] bool armed() const noexcept { return drive_.armed(); }
 
     void event(const SDL_Event &event, Panels &ui) {
         if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_MINIMIZED) {
@@ -201,6 +204,7 @@ class Controls {
         case SDL_SCANCODE_X:
             if (fresh) {
                 drive_.emergency();
+                ui.request(LiveAction::emergency_stop);
             }
             break;
         case SDL_SCANCODE_R:
@@ -271,8 +275,33 @@ class Tour {
         }
         const auto now = SDL_GetTicks();
         if (now - started_ > 55000) {
+            std::cerr << "Tour timed out at stage " << stage_ << " (status " << ui.status() << ')';
+            if (ui.latest_mission()) {
+                std::cerr << ", mission " << mission::label(ui.latest_mission()->state) << " / "
+                          << mission::label(ui.latest_mission()->cause);
+            }
+            std::cerr << '\n';
             return true;
         }
+        if (!run_) {
+            run_ = frame.run;
+        }
+        if (mode_ == Mode::reopen) {
+            if (stage_ == 0 && !ui.busy() && ui.queue({JobKind::reopen_run})) {
+                ++stage_;
+            }
+            if (stage_ == 1 && !ui.busy() && ui.archive_ready()) {
+                reopened_ = frame.archived && frame.run != *run_ && frame.grid.counts().free > 0;
+                return true;
+            }
+            return false;
+        }
+        if (!frame.archived) {
+            continuous_ =
+                continuous_ && frame.run == *run_ && frame.telemetry.sample_tick >= last_sample_;
+            last_sample_ = frame.telemetry.sample_tick;
+        }
+        saw_worker_ = saw_worker_ || ui.worker_driving();
         const auto &pose = frame.telemetry.estimated_pose;
         if (!origin_) {
             origin_ = mapping::Point{pose.x.value(), pose.y.value()};
@@ -328,7 +357,7 @@ class Tour {
             break;
         case 7:
             ui.panel = Panel::missions;
-            ready = ui.audit_ready && ui.queue({JobKind::scan_mission});
+            ready = ui.audit_ready && ui.audit_has_reads() && ui.queue({JobKind::scan_mission});
             break;
         case 8:
             ready = completed(ui, mission::Workflow::scan_all) && ui.queue({JobKind::dock_mission});
@@ -368,6 +397,18 @@ class Tour {
             ui.panel = Panel::overview;
             isolated_ = !truth_visible(ui.panel, ui.developer_truth);
             break;
+        case 15:
+            ui.panel = Panel::history;
+            ready = ui.save();
+            break;
+        case 16:
+            ready = ui.saved_ready() && ui.queue({JobKind::reopen_run});
+            break;
+        case 17:
+            reopened_ = ui.archive_ready() && frame.archived && frame.run == *run_ &&
+                        frame.grid.counts().free > 0;
+            ready = reopened_;
+            break;
         default:
             finished_ = true;
             return true;
@@ -397,17 +438,25 @@ class Tour {
         if (mode_ == Mode::interactive) {
             return true;
         }
+        if (mode_ == Mode::reopen) {
+            std::cout << "{\"savedRunReopenedAfterRestart\":" << std::boolalpha << reopened_
+                      << "}\n";
+            return reopened_;
+        }
         std::ranges::sort(samples_);
         const auto p95 = samples_.empty() ? 10000.0 : samples_[samples_.size() * 95 / 100];
         auto &output = mode_ == Mode::record ? std::cerr : std::cout;
         output << "{\"workflowTour\":" << std::boolalpha << finished_
                << ",\"movingObserved\":" << moved_ << ",\"truthIsolated\":" << isolated_
                << ",\"lidarDropoutHeld\":" << saw_dropout_
-               << ",\"lidarRecovered\":" << saw_recovery_ << ",\"resized\":" << resized_
-               << ",\"contextRebuilt\":" << rebuilt_ << ",\"frames\":" << samples_.size()
-               << ",\"maxVisibleCatalogRows\":" << max_rows_ << ",\"frameP95Ms\":" << p95 << "}\n";
-        return finished_ && moved_ && isolated_ && saw_dropout_ && saw_recovery_ && resized_ &&
-               rebuilt_ && samples_.size() >= 30 && max_rows_ > 0 && max_rows_ < 40 && p95 < 50.0;
+               << ",\"continuousRun\":" << (continuous_ && saw_worker_)
+               << ",\"savedRunReopened\":" << reopened_ << ",\"lidarRecovered\":" << saw_recovery_
+               << ",\"resized\":" << resized_ << ",\"contextRebuilt\":" << rebuilt_
+               << ",\"frames\":" << samples_.size() << ",\"maxVisibleCatalogRows\":" << max_rows_
+               << ",\"frameP95Ms\":" << p95 << "}\n";
+        return finished_ && moved_ && isolated_ && saw_dropout_ && saw_recovery_ && continuous_ &&
+               saw_worker_ && reopened_ && resized_ && rebuilt_ && samples_.size() >= 30 &&
+               max_rows_ > 0 && max_rows_ < 40 && p95 < 50.0;
     }
 
   private:
@@ -425,6 +474,11 @@ class Tour {
     bool moved_{};
     bool saw_dropout_{};
     bool saw_recovery_{};
+    bool continuous_{true};
+    bool saw_worker_{};
+    bool reopened_{};
+    std::optional<RunId> run_;
+    std::uint64_t last_sample_{};
     bool resized_{};
     bool rebuilt_{};
     bool isolated_{};
@@ -433,13 +487,14 @@ class Tour {
     std::size_t max_rows_{};
 };
 
-app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_scene) {
+app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
+                 bool demo_scene) {
     Graphics graphics{window};
     if (!graphics.open()) {
         return Error::graphics_context;
     }
-    Scene scene{engine.layout()};
-    Panels ui{mode == Mode::interactive ? operations_directory : std::nullopt};
+    Scene scene{engine->layout()};
+    Panels ui{engine, demo_scene, mode != Mode::smoke, operations_directory};
     Tour tour{mode, ui};
     Controls controls;
     std::optional<Recorder> recorder;
@@ -448,6 +503,15 @@ app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_sc
     }
     auto *capture = recorder ? &*recorder : nullptr;
     auto last_step = SDL_GetTicks();
+    bool pending_stop = false;
+    const auto hold = [&] {
+        controls.disarm();
+        if (engine) {
+            engine->finish_job(false);
+        } else {
+            ui.interrupt();
+        }
+    };
     while (true) {
         const auto before = SDL_GetPerformanceCounter();
         SDL_Event event{};
@@ -458,14 +522,18 @@ app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_sc
             }
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
                 (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE)) {
-                engine.step({}, LiveAction::pause, false);
+                hold();
                 return std::monostate{};
             }
             controls.event(event, ui);
         }
         ui.poll();
-        if (tour.advance(ui, window, engine.frame())) {
-            engine.step({}, LiveAction::pause, false);
+        if (pending_stop && engine) {
+            engine->finish_job(true);
+            pending_stop = false;
+        }
+        if (tour.advance(ui, window, ui.frame())) {
+            hold();
             return tour.summary() ? app::Status{std::monostate{}}
                                   : app::Status{Error::graphics_present};
         }
@@ -485,23 +553,40 @@ app::Status loop(SDL_Window *window, LiveEngine &engine, Mode mode, bool demo_sc
         } else {
             last_step += due * robot::step_ms;
         }
-        for (std::uint64_t index = 0; index < due; ++index) {
-            engine.step(controls.command(), std::exchange(ui.action, LiveAction::none), focused,
-                        ui.lidar_dropout);
+        if (!focused || ui.action == LiveAction::pause || ui.action == LiveAction::emergency_stop) {
+            ui.cancel_pending();
+        } else if (!controls.armed()) {
+            ui.dispatch();
+        }
+        if (engine && !ui.reviewing()) {
+            for (std::uint64_t index = 0; index < due; ++index) {
+                engine->step(controls.command(), std::exchange(ui.action, LiveAction::none),
+                             focused, ui.lidar_dropout);
+            }
+        } else {
+            const auto action = std::exchange(ui.action, LiveAction::none);
+            const auto command = controls.command();
+            const bool emergency = action == LiveAction::emergency_stop || command.emergency_stop;
+            controls.disarm();
+            if (emergency && engine) {
+                engine->finish_job(true);
+            } else if (!engine && (!focused || emergency || action == LiveAction::pause)) {
+                pending_stop = pending_stop || emergency;
+                ui.interrupt(emergency);
+            }
         }
         if (std::exchange(ui.rebuild, false)) {
             controls.disarm();
-            engine.step({}, LiveAction::pause, false);
+            hold();
             if (!graphics.rebuild()) {
                 return Error::graphics_context;
             }
             tour.graphics_rebuilt();
         }
-        if (!minimized && !graphics.draw(scene, engine, ui, focused, demo_scene, capture)) {
-            controls.disarm();
-            engine.step({}, LiveAction::pause, false);
+        if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture)) {
+            hold();
             if (capture || !graphics.rebuild() ||
-                !graphics.draw(scene, engine, ui, false, demo_scene, nullptr)) {
+                !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr)) {
                 return Error::graphics_present;
             }
         }
@@ -517,7 +602,7 @@ app::Status desktop(const app::Options &options, Mode mode) {
         return app::export_warehouse(options.fixture);
     }
     auto chosen = options;
-    if (mode != Mode::interactive) {
+    if (mode != Mode::interactive || chosen.warehouse_source == app::WarehouseSource::none) {
         chosen.warehouse_source = app::WarehouseSource::fixture;
         chosen.fixture = "rfid-audit";
     }
@@ -525,15 +610,17 @@ app::Status desktop(const app::Options &options, Mode mode) {
     if (const auto *error = std::get_if<simulation::ScenarioError>(&loaded)) {
         return *error;
     }
-    auto live =
-        LiveEngine::create(std::get<simulation::Warehouse>(std::move(loaded)), options.tick);
+    const bool demo_scene =
+        chosen.warehouse_source == app::WarehouseSource::fixture && chosen.fixture == "rfid-audit";
+    auto live = LiveEngine::create(std::get<simulation::Warehouse>(std::move(loaded)), options.tick,
+                                   demo_scene);
     if (const auto *error = std::get_if<app::Failure>(&live)) {
         return *error;
     }
-    auto &engine = std::get<LiveEngine>(live);
+    auto engine = std::make_unique<LiveEngine>(std::get<LiveEngine>(std::move(live)));
     for (std::uint32_t step = 0; step < std::max(options.drive_steps, options.sensor_steps);
          ++step) {
-        engine.step(app::probe_command, LiveAction::none, true);
+        engine->step(app::probe_command, LiveAction::none, true);
     }
     struct VideoSession {
         ~VideoSession() { SDL_Quit(); }
@@ -559,20 +646,21 @@ app::Status desktop(const app::Options &options, Mode mode) {
         return Error::window_creation;
     }
     SDL_SetWindowMinimumSize(window.get(), 900, 610);
-    return loop(window.get(), engine, mode,
-                chosen.warehouse_source == app::WarehouseSource::fixture &&
-                    chosen.fixture == "rfid-audit");
+    return loop(window.get(), engine, mode, demo_scene);
 }
 
 app::Status interactive(const app::Options &options) { return desktop(options, Mode::interactive); }
 app::Status smoke(const app::Options &options) { return desktop(options, Mode::smoke); }
 app::Status tour(const app::Options &options) { return desktop(options, Mode::tour); }
 app::Status record(const app::Options &options) { return desktop(options, Mode::record); }
+app::Status reopen(const app::Options &options) { return desktop(options, Mode::reopen); }
 
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc == 3 && std::string_view{argv[1]} == "--operations-data") {
+    const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
+    if (argc == 3 &&
+        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             return 2;
@@ -582,7 +670,10 @@ int main(int argc, char **argv) {
         } catch (const std::exception &) {
             return 2;
         }
-        return app::run_application(1, argv, "argus-desktop", interactive);
+        const auto entry = option == "--ui-smoke"    ? smoke
+                           : option == "--ui-reopen" ? reopen
+                                                     : interactive;
+        return app::run_application(1, argv, "argus-desktop", entry);
     }
     if (argc == 2 && std::string_view{argv[1]} == "--ui-smoke") {
         return app::run_application(1, argv, "argus-desktop", smoke);
