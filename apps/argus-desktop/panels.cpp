@@ -74,14 +74,17 @@ std::string_view finding_name(audit::Finding finding) noexcept {
     return {};
 }
 
-void camera_picker(Camera &camera) {
+void camera_picker(Camera &camera, bool archived = false) {
     for (const auto &[mode, caption] :
          {std::pair{CameraMode::orbit, "Orbit"}, std::pair{CameraMode::plan, "Top-down"},
           std::pair{CameraMode::follow, "Follow"}}) {
-        if (camera.mode == mode) {
+        if (archived && mode == CameraMode::follow) {
+            break;
+        }
+        const bool selected = view_camera_mode(camera.mode, archived) == mode;
+        if (selected) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.18F, 0.36F, 0.38F, 1.0F});
         }
-        const bool selected = camera.mode == mode;
         const bool clicked = ImGui::Button(caption);
         if (selected) {
             ImGui::PopStyleColor();
@@ -89,7 +92,7 @@ void camera_picker(Camera &camera) {
         if (clicked) {
             camera.mode = mode;
         }
-        if (mode != CameraMode::follow) {
+        if (mode == CameraMode::orbit || (!archived && mode == CameraMode::plan)) {
             ImGui::SameLine();
         }
     }
@@ -404,7 +407,7 @@ Canvas Panels::draw(const LiveFrame &frame, bool focused) {
     } else {
         quiet("Captured map evidence");
     }
-    camera_picker(camera);
+    camera_picker(camera, frame.archived);
     const auto remaining = ImGui::GetContentRegionAvail();
     ImGui::InvisibleButton("##orbit-hitbox",
                            {std::max(1.0F, remaining.x), std::max(1.0F, remaining.y)},

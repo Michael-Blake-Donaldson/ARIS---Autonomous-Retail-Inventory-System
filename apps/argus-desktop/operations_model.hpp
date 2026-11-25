@@ -24,6 +24,9 @@ enum class Panel {
     diagnostics
 };
 enum class CameraMode { orbit, plan, follow };
+[[nodiscard]] inline CameraMode view_camera_mode(CameraMode mode, bool archived) noexcept {
+    return archived && mode == CameraMode::follow ? CameraMode::plan : mode;
+}
 enum class LiveAction { none, explore, pause, emergency_stop, reset_stop, restart };
 enum class DriveKey { forward, reverse, left, right };
 

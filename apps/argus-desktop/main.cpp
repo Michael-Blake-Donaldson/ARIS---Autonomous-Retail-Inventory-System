@@ -129,9 +129,7 @@ class Graphics {
         const auto overlays =
             frame.archived ? Overlays{.lidar = false, .occupancy = true} : ui.overlays;
         auto camera = ui.camera;
-        if (frame.archived && camera.mode == CameraMode::follow) {
-            camera.mode = CameraMode::plan;
-        }
+        camera.mode = view_camera_mode(camera.mode, frame.archived);
         scene.draw(viewport, frame, camera, overlays, regions, developer ? &*developer : nullptr,
                    frame.archived || ui.map_only);
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
