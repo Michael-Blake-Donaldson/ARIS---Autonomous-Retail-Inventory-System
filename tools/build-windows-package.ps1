@@ -72,7 +72,7 @@ try {
     $cmakeVersion = $cmakeVersionLine -replace '^cmake version ', ''
     $compilerConfig = Join-Path $build "CMakeFiles/$cmakeVersion/CMakeCXXCompiler.cmake"
     $compiler = [regex]::Match((Get-Content -LiteralPath $compilerConfig -Raw),
-        '(?m)^set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)$').Groups[1].Value
+        '(?m)^set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)\r?$').Groups[1].Value
     if (!$compiler) { throw 'The configured compiler version could not be recorded.' }
     $sourceDateEpoch = Invoke-BuildStep git @('show', '-s', '--format=%ct', $source)
     [ordered]@{
