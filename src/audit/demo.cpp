@@ -1,6 +1,7 @@
 #include "argus/audit/mission.hpp"
 
 #include "argus/simulation/fixtures.hpp"
+#include "argus/simulation/observed_run.hpp"
 #include "argus/simulation/robot.hpp"
 #include "argus/simulation/sensors.hpp"
 
@@ -173,10 +174,9 @@ std::vector<std::size_t> priorities(const Scope &scope, const Request &request,
 
 class Survey {
   public:
-    Survey(simulation::RobotSimulation &robot, simulation::SensorRig &rig, mapping::Mapper &mapper,
-           navigation::Navigator &navigator, Repository &repository, SessionId session)
-        : robot_{robot}, rig_{rig}, mapper_{mapper}, navigator_{navigator}, repository_{repository},
-          session_{session} {}
+    Survey(simulation::ObservedRun &run, navigation::Navigator &navigator, Repository &repository,
+           SessionId session)
+        : run_{run}, navigator_{navigator}, repository_{repository}, session_{session} {}
 
     Visit investigate(std::size_t site_index, std::size_t pass) {
         const auto &site = sites.at(site_index);
@@ -189,7 +189,8 @@ class Survey {
         robot::Command command;
         for (std::size_t i = 0; i < max_view_ticks && ticks_ < max_mission_ticks; ++i) {
             step(command);
-            command = navigator_.update(mapper_, robot_.telemetry(), lidar_ ? &*lidar_ : nullptr);
+            command = navigator_.update(run_.mapper, run_.robot.telemetry(),
+                                        run_.lidar ? &*run_.lidar : nullptr);
             const auto progress = navigator_.progress();
             if (progress.state == navigation::State::finished) {
                 visit.outcome = navigation::label(progress.reason);
@@ -208,20 +209,8 @@ class Survey {
 
   private:
     void step(robot::Command command) {
-        robot_.step(command);
         ++ticks_;
-        rig_.capture(robot_);
-        radio_.reset();
-        while (auto reading = rig_.pop()) {
-            const auto update = mapper_.ingest(*reading);
-            if (auto *lidar = std::get_if<sensors::LidarScan>(&*reading);
-                lidar && update == mapping::Update::accepted) {
-                lidar_ = std::move(*lidar);
-            }
-            if (auto *scan = std::get_if<sensors::RfidScan>(&*reading)) {
-                radio_ = std::move(*scan);
-            }
-        }
+        radio_ = simulation::step_observed(run_, command, navigator_);
     }
 
     void collect(std::size_t site, std::size_t pass, Visit &visit) {
@@ -230,7 +219,7 @@ class Survey {
         for (std::size_t i = 0;
              i < 48 && ticks_ < max_mission_ticks && frames_received < frames_per_view; ++i) {
             step({});
-            const auto &estimate = mapper_.estimate();
+            const auto &estimate = run_.mapper.estimate();
             if (!radio_ || !estimate || !estimate->reliable ||
                 estimate->sample_tick != radio_->header.sample_tick) {
                 continue;
@@ -240,7 +229,7 @@ class Survey {
             if (std::hypot(pose.x.value() - goal.point.x_m, pose.y.value() - goal.point.y_m) >
                     0.11 ||
                 std::abs(std::remainder(heading - goal.heading.value(), full_turn)) > 0.16 ||
-                robot_.telemetry().collision_blocked) {
+                run_.robot.telemetry().collision_blocked) {
                 continue;
             }
             const Footprint footprint{
@@ -258,14 +247,11 @@ class Survey {
         visit.outcome = visit.frames >= min_coverage_frames ? "scanned" : "incomplete_scan";
     }
 
-    simulation::RobotSimulation &robot_;
-    simulation::SensorRig &rig_;
-    mapping::Mapper &mapper_;
+    simulation::ObservedRun &run_;
     navigation::Navigator &navigator_;
     Repository &repository_;
     SessionId session_;
     Evidence evidence_;
-    std::optional<sensors::LidarScan> lidar_;
     std::optional<sensors::RfidScan> radio_;
     std::uint32_t ticks_{};
 };
@@ -339,10 +325,6 @@ std::span<const Site> demo_sites() noexcept { return sites; }
 Result<Report, Error> run_demo(Repository &repository, const Request &request, SessionId session,
                                bool enable_second_pass) {
     try {
-        auto scope = load_scope(repository, request);
-        if (!valid_sites(sites)) {
-            return Error::invalid_data;
-        }
         const auto fixture = configured(simulation::fixture_json("rfid-audit"));
         const auto warehouse = configured(simulation::Warehouse::from_json(fixture));
         const auto config = warehouse.snapshot(0);
@@ -355,13 +337,34 @@ Result<Report, Error> run_demo(Repository &repository, const Request &request, S
         auto mapper = configured(mapping::Mapper::create(
             {config.scenario_id, static_cast<std::uint32_t>(config.floor.max.x),
              static_cast<std::uint32_t>(config.floor.max.y), 250}));
-        auto made = navigation::Navigator::create(
-            mapper.grid(), {.radius = Meters{config.robot_radius_mm / 1000.0}});
+        std::optional<sensors::LidarScan> lidar;
+        simulation::ObservedRun run{robot, rig, mapper,
+                                    lidar, {},  Meters{config.robot_radius_mm / 1000.0}};
+        return run_observed(repository, request, session, run, enable_second_pass);
+    } catch (Error error) {
+        return error;
+    }
+}
+
+Result<Report, Error> run_observed(Repository &repository, const Request &request,
+                                   SessionId session, simulation::ObservedRun &run,
+                                   bool enable_second_pass) {
+    try {
+        auto scope = load_scope(repository, request);
+        auto made = navigation::Navigator::create(run.mapper.grid(), {.radius = run.radius});
+        if (!valid_sites(sites) || run.mapper.grid().spec().scenario != ScenarioId{801}) {
+            return Error::invalid_data;
+        }
         if (!made) {
             return Error::invalid_data;
         }
-        take(repository.start_session({session, MissionId{session.value()}, RobotId{1}, 0}));
-        Survey survey{robot, rig, mapper, *made, repository, session};
+        const auto tick = run.robot.telemetry().sample_tick;
+        if (tick > static_cast<std::uint64_t>(INT64_MAX) / robot::step_ms) {
+            return Error::invalid_data;
+        }
+        take(repository.start_session(
+            {session, MissionId{session.value()}, RobotId{1}, tick * robot::step_ms}));
+        Survey survey{run, *made, repository, session};
         Report report{session, request, {}, {}, {}};
         if (std::holds_alternative<FindItem>(request) && scope.targets.empty()) {
             return report;

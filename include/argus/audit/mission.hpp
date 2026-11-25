@@ -3,6 +3,10 @@
 #include "argus/audit/evidence.hpp"
 #include "argus/inventory/repository.hpp"
 
+namespace argus::simulation {
+struct ObservedRun;
+}
+
 namespace argus::audit {
 
 struct FindItem {
@@ -51,6 +55,12 @@ struct Report {
                                                         const Request &request,
                                                         inventory::SessionId session,
                                                         bool enable_second_pass = true);
+// Uses the documented demo viewpoints with the caller's existing observed run.
+[[nodiscard]] Result<Report, inventory::Error> run_observed(inventory::Repository &repository,
+                                                            const Request &request,
+                                                            inventory::SessionId session,
+                                                            simulation::ObservedRun &run,
+                                                            bool enable_second_pass = true);
 
 [[nodiscard]] std::string csv_field(std::string_view value);
 [[nodiscard]] inventory::Status write_report(std::ostream &out, const Report &report,
