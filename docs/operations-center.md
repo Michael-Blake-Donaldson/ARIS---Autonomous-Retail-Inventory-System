@@ -21,9 +21,19 @@ Select Orbit, Top-down, or Follow with the camera buttons or keys 1, 2, and 3. R
 | Settings | Select or reset the camera, reset the stop latch and restart the live simulation |
 | Diagnostics | Inspect pose uncertainty, opt in to simulated truth, and recreate the graphics context |
 
-Search, audit, and mission panels submit work to an isolated background simulator using the `rfid-audit` fixture. They return results to the foreground through a bounded mailbox. Their robots are separate from the live exploration view. Uncertain evidence regions overlay the live scene only if it is the bundled `rfid-audit` layout. The catalog uses 256-row pages and filters the loaded rows, up to 12,000. Viewport clipping limits the widgets emitted per frame. DPCI lookups can still query a product outside the loaded pages.
+The desktop starts in the bundled `rfid-audit` stockroom. Explore, product investigation, aisle audit, and routed mission jobs use the same simulated robot and its existing map. During a routed job, the background worker owns the run and publishes observed map and route updates to the dashboard. The elapsed-time readout uses simulation time. Use **Hold routed work** to interrupt a job. Focus loss and the emergency-stop control also suspend routed motion. Resolve an unfinished mission before starting another routed job.
 
-By default the workbench uses disposable fictional demo databases. To keep catalog and mission data across launches, use an existing operator-controlled directory with `argus-desktop --operations-data DIRECTORY`. It uses `catalog.db` and `missions.db` inside that directory and seeds the fictional catalog if the catalog database is absent. This standalone option opens the default live warehouse. A pre-existing mission database restores its latest record. The workbench rejects overlapping jobs and preserves unresolved mission state for cancellation or inspection confirmation.
+Other warehouses support live driving and mapping. The bundled RFID stockroom supplies the authored survey viewpoints and dock for routed work. Catalog lookup is available independently. The catalog uses 256-row pages and filters the loaded rows, up to 12,000. Viewport clipping limits rendered rows and DPCI lookups cover the full catalog.
+
+## Save and reopen a run
+
+By default the workbench uses disposable fictional demo databases. To keep evidence across launches, start `argus-desktop --operations-data DIRECTORY` with an existing operator-controlled directory. The desktop opens `catalog.db` and `missions.db` and seeds the fictional catalog when its database is absent. A previously persisted mission remains available as earlier work.
+
+1. Explore the RFID audit stockroom and run a product investigation or aisle audit from the corresponding panel.
+2. After an aisle audit, open **Lineage / History** and select **Save map and audit**. This replaces the last saved run and records the run ID, sample tick, mission reference when present, search and audit session references, occupancy snapshot, and exact audit JSON.
+3. Select **Open saved run** to view the archived map and read the audit report. Use **Copy audit JSON** for the saved export, or **Return to live** to leave review.
+
+Saved runs are read-only evidence. Reopening an archive validates its map and referenced records. Start the same desktop mode against the same data directory to reopen it after a restart.
 
 ## Read the live map
 
@@ -36,6 +46,8 @@ Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonom
 ## Local verification and recording
 
 `argus-desktop --ui-smoke` drives the native workflows, verifies a LiDAR dropout and recovery, loads a 12,000-row benchmark, resizes the window, and recreates OpenGL. It reports how many catalog rows were rendered and the 95th-percentile active frame time. Enable `ARGUS_ENABLE_NATIVE_UI_TESTS` at configure time to register it with CTest on an interactive Windows session. `--ui-tour` replays the same workflow at viewing speed.
+
+On an interactive test host, pass an existing disposable directory to `--ui-smoke DIRECTORY` and then run `--ui-reopen DIRECTORY` in a second process to verify a durable archive.
 
 `--ui-record` writes the native app framebuffer as bottom-up 1280 × 720 RGB24 at 20 frames per second. The workflow summary goes to stderr. Encode it from a binary-safe Command Prompt pipeline.
 

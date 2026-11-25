@@ -21,6 +21,8 @@ Routine and urgent work share a bounded queue. Safety priority is reserved for e
 
 ## Persistence and restart
 
+Mission database schema version 2 adds one saved desktop run. Version 1 journals migrate in a transaction and keep their work and events. Back up the data directory before upgrading. Saved run evidence includes a bounded map snapshot and audit JSON with session and mission references. See the [desktop evidence workflow](operations-center.md#save-and-reopen-a-run).
+
 The journal holds at most 4,096 mission records and 16 unfinished records. State changes and their append-only events commit in one SQLite transaction. A monotone revision identifies the active lease and reserves room for recovery and a terminal event. Checkpoints retain elapsed milliseconds, planned and measured odometry distance, the count and mask of qualified views, raw read count, and exceptions. A monotonically increasing checkpoint sequence rejects replay.
 
 `run` accepts 1–2,400 simulation ticks. CLI submissions use a mission timeout of 100 seconds of accumulated simulation time. When a run's step budget ends with work still active, the final checkpoint stays active for inspection and recovery. The demo releases the deadman as it exits. To recover after an interrupted process, stop the old runner, use `recover`, then run with a resume ID. For example, `run 1600 - normal 901` reacquires a fresh observed launch pose in the synthetic fixture. The resumed mission skips durably completed viewpoints. Recovery pauses interrupted work, invalidates its old lease, and requires an explicit reliable localization proof before requeueing. An old checkpoint contains no position to reuse.

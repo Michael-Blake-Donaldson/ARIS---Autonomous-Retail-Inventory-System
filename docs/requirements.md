@@ -23,3 +23,12 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Interpret localization and navigation | Show mapper reliability and error bounds, mark uncertain poses visibly, and explain the navigator's current hold or yield, replan count and latest replan cause. |
 | Reviewer | Demonstrate sensor dropout | Withhold LiDAR observations through the native map controls. The tour must observe a stale scan, a navigator hold with zero commanded translation, and fresh scan recovery. |
 | Engineer | Protect the simulation boundary | Derive status from public telemetry, observations and estimates. Keep simulator truth limited to the existing explicit diagnostics and evaluation paths. |
+
+## Phase 14 continuous simulation workflow
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Follow the robot from mapping through routed work | The bundled RFID audit stockroom keeps one robot, mapper, sensor RNG and run identity across exploration, search, audit, scan and dock jobs. |
+| Operator | Follow a job and retain control | The dashboard renders observed progress during routed work. Hold, focus loss and emergency stop interrupt worker commands at a simulation step boundary. |
+| Reviewer | Save and inspect the run after reopening | Save a verified occupancy snapshot and audit report with their run and session identifiers. Reopen the evidence in a fresh desktop process without advancing the saved run. |
+| Engineer | Preserve existing data and isolation | Migrate existing mission journals, bind storage values, bound report and map inputs, and keep simulator truth inaccessible to the worker's progress snapshots. |
