@@ -40,3 +40,11 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Engineer | Measure simulation and rendering independently | Record headless step latency at representative catalog sizes and native frame and scene latency. Report p95 and p99, allocation measurements and cache-miss evidence with the counter source and limits. |
 | Operator | Render a map across repeated frames | Reuse occupancy geometry across frames that share an observed map revision. Refresh it for new observations, resets, run changes and archived evidence. |
 | Reviewer | Verify that the optimization preserves results | Compare seeded headless outputs and cached versus uncached geometry. Exercise the continuous desktop workflow, saved-run review and graphics recovery. |
+
+## Phase 16 simulation showcase acceptance
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Follow a single stockroom run | Show observed mapping, a LiDAR dropout hold and recovery, product investigation, aisle audit, routed missions and saved-run review. |
+| Reviewer | Reproduce the handoff from the portable package | Verify the ZIP and test receipt. Run the native tour from the extraction, replace the program, reopen the original desktop evidence in a fresh process and confirm removal preserves the data. |
+| Reviewer | Inspect the demonstration and its limits | Provide a native recording and walkthrough, link to measured performance and disclose simulation, signing and host verification limits. |

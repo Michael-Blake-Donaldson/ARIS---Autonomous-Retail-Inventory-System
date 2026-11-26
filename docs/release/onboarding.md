@@ -46,7 +46,9 @@ A matching warehouse fixture and cell size are required on map import. Each load
 
 ## Search, audit, and reopen
 
-The desktop **Find Product** panel accepts fictional DPCI `990-01-0001`. **Inventory Audit** opens the `SOFTLINES` example with expected quantity, unique RFID observations, and findings for human review. **Missions** runs an aisle scan. **Lineage / History** shows its saved transitions when the workbench uses a persistent folder.
+In the default `rfid-audit` stockroom, Explore, product investigation, audit and routed missions share the same robot and map. Use **Find Product** for fictional DPCI `990-01-0001`, **Inventory Audit** to audit `SOFTLINES`, and **Missions** to scan aisles or return to dock. The audit shows expected quantities, unique observed EPCs and findings for human review.
+
+After an audit, open **Lineage / History** and choose **Save map and audit**. Close ARGUS, start it again with the same `--operations-data` directory, and use **Open saved run** in that panel. **Copy audit JSON** copies the archived report. **Return to live** returns to the new session. Each save replaces the previous capture in that data folder.
 
 To export files and reproduce the work using separate CLI databases, run these commands once from the extracted program directory in Command Prompt. Choose new positive session and mission IDs for subsequent runs.
 
