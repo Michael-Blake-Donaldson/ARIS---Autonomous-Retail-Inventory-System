@@ -4,6 +4,8 @@ ARGUS is an offline C++20 simulator for autonomous retail stockroom mapping and 
 
 For the Windows simulation showcase, see the [release walkthrough](docs/release/release-page.md) and [portable installation guide](docs/release/onboarding.md). Developers can use the [architecture and API guide](docs/release/architecture.md).
 
+The [engineering roadmap and phase acceptance criteria](docs/requirements.md) track implementation and verification beyond the original engineering plan.
+
 ## Build and test
 
 Install Git, CMake 3.25 or later, and Ninja. On Windows, install Visual Studio 2022 with the Desktop development with C++ workload and a Windows SDK. Run the following from an x64 Native Tools Command Prompt at the repository root.

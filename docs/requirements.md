@@ -112,3 +112,38 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Team lead | Preserve a completed survey | Save completed coverage before driving back. Interrupt the return and verify the completed report, source link and retained aisle claim independently. |
 | Maintainer | Diagnose a stalled peer | Stop a stalled fleet rendezvous within a bounded wait. Reject late submissions and preserve both robots' last committed ticks. Keep audit history accessible and mark motion unavailable. |
 | Reviewer | Exercise normal and failed runs | Verify the real saved-report interruption path, the missed tick and late peer path, and the existing narrow-aisle and recovery workflows. |
+
+## Phase 24 fault handling and recovery verification
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Recover from a small mistake | Exercise mistyped or empty location and product IDs, duplicate clicks, stale selections, attempts to act on a busy or held robot, a wrong data directory, canceled dialogs, and focus loss during an action. Keep valid inputs and the selected report where practical. Explain what happened and give the next available action. |
+| Operator | Open existing data safely | Exercise malformed, oversized, unsupported and truncated imports, damaged or outdated journals, inaccessible paths, an occupied database and exhausted disk space. Use disposable fixtures. Reject unreadable evidence explicitly and preserve previously committed data. Verify usable workflows remain available after the failure. |
+| Maintainer | Recover from interrupted work | Inject worker timeouts, stale sensors, blocked routes, graphics loss, slow storage and failures during writes. Restart at meaningful boundaries before and after a durable commit. Verify safe motion state, consistent aisle reservations, and report provenance after reopening. |
+| Reviewer | Verify compound and unlikely faults | Build a matrix for validation, storage, concurrency, sensors, rendering, startup and shutdown. Include credible combinations such as cancellation during a save, focus loss during aisle clearance and a storage failure during re-audit. Record the trigger, expected state, visible feedback, recovery and observed result. |
+| Engineer | Prove the recovery path | Use deterministic fault injection where possible. Verify bounded waits and retries, no duplicate audit history, readable error messages and successful retry or restart. Add targeted regressions for fixes and exercise representative faults through the desktop, CLI and extracted package where applicable. |
+
+The matrix prioritizes impact on data integrity, motion and operator recovery as well as likelihood. Verify that an ordinary action following each recoverable fault succeeds. Record unexercised cases and their blockers in the phase report.
+
+## Phase 25 principal engineering review and improvements
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Principal reviewer | Review the entire program | Inventory each subsystem, its interfaces and its entry points. Review core C++ ownership and lifetimes, simulation and sensor fidelity, navigation and traffic, inventory, persistence, desktop and CLI, build and dependencies, test coverage and release tooling. Record reviewed areas and findings with evidence, severity and user impact. |
+| Engineer | Correct verified defects | Prioritize data loss, invalid motion state, races, stalls and incorrect results. Fix confirmed issues in the phase scope, cover each fix with applicable regression evidence and verify affected workflows across the supported builds. Record the disposition and impact of every finding. |
+| Principal reviewer | Identify improvements with measurable value | Evaluate layout-aware traffic reservations, audit accuracy across varied scenarios, fleet performance under contention, maintainability, operator recovery and deployment. Compare plausible approaches using cost, benefit and evidence. Implement improvements justified by the review and rank deferred work with the evidence it would need to proceed. |
+| Release reviewer | Verify the handoff independently | Re-run relevant native and headless workflows, seeded parity where behavior should match, migrations, static analysis, applicable sanitizers and extracted-package checks. Keep any unverified platform or fresh-install gate explicit. Require evidence for every closed critical or high finding. |
+
+The review produces a findings register and an improvement backlog. Record and prioritize lower-severity defects and design tradeoffs so they remain visible after the phase.
+
+## Phase 26 performance-first desktop usability and visual refinement
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Team member or lead | Read status and act quickly | Make Fleet's at-a-glance states clear for pending, running, complete, held and needs review. Verify the shortest paths to open a finished shelf or Waco, inspect product evidence and queue a re-audit. Use text alongside color and keep task selection visible across views. |
+| Maintainer | Inspect a moving robot | Verify full-brightness LiDAR, motion trails, scan age, localization and hold details in Robot Maintenance. Keep diagnostics easy to reach from Fleet and verify a return to the current location report without losing context. |
+| Operator | Use the desktop comfortably | Refine typography, spacing and hierarchy. Verify keyboard navigation and focus, legible status contrast, and readable empty, error and hold states. Exercise the 1280 × 720 layout, larger windows and high-DPI settings, with representative mixed shelves and long reports. |
+| Performance reviewer | Compare before and after | Establish a baseline on the same hardware, build mode, packaged assets, display size, scenarios and seeds. Take repeated measurements of frame p95 and p99, simulation tick p95 and p99, input-to-visible feedback, allocation and peak memory. Cover idle Fleet, two active robots on separate routes, aisle contention, Maintenance and a long audit report. |
+| Engineer | Ship changes that earn their cost | Profile rendering and snapshot work to find actual hot spots. Compare candidates against the baseline and its observed variability. Resolve material regressions before acceptance or record an explicit tradeoff with measured impact and a reason. Verify completed audit contents, fleet behavior and seeded headless output. |
+
+Judge visual polish by readability, task completion and responsiveness. Record before-and-after captures and benchmark results for the packaged desktop.
