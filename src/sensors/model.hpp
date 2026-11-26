@@ -30,6 +30,7 @@ using RfidDwell = std::map<std::string, Exposure>;
                                             Random &random);
 [[nodiscard]] sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical,
                                           sensors::Header header, const RfidConfig &config,
-                                          RfidDwell &dwell, Random &random);
+                                          RfidDwell &dwell, Random &random,
+                                          const std::optional<RfidFocus> &focus = {});
 
 } // namespace argus::simulation::detail

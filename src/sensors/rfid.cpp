@@ -39,7 +39,8 @@ double transmission(const std::vector<world::RectMm> &obstacles, world::PreciseP
 } // namespace
 
 sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sensors::Header header,
-                            const RfidConfig &config, RfidDwell &dwell, Random &random) {
+                            const RfidConfig &config, RfidDwell &dwell, Random &random,
+                            const std::optional<RfidFocus> &focus) {
     sensors::RfidScan scan{header, {}};
     const auto heading = physical.heading.value();
     const auto cos_heading = std::cos(heading);
@@ -60,6 +61,18 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
     world.visit_tags(region, [&](const TagTruth &tag) {
         const auto x = static_cast<double>(tag.position.x);
         const auto y = static_cast<double>(tag.position.y);
+        if (focus) {
+            const auto east = x / mm_per_m - physical.x.value();
+            const auto north = y / mm_per_m - physical.y.value();
+            const auto forward = east * cos_heading + north * sin_heading;
+            const auto left = north * cos_heading - east * sin_heading;
+            const auto height = tag.height_mm / mm_per_m;
+            if (std::abs(forward - focus->forward.value()) > focus->half_depth.value() ||
+                std::abs(left - focus->left.value()) > focus->half_width.value() ||
+                std::abs(height - focus->height.value()) > focus->half_height.value()) {
+                return;
+            }
+        }
         const auto dx = (x - origin.x) / mm_per_m;
         const auto dy = (y - origin.y) / mm_per_m;
         const auto dz = tag.height_mm / mm_per_m - config.antenna_height_m;

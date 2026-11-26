@@ -55,6 +55,7 @@ struct SensorRig::State {
     Random rfid_random;
     std::uint64_t last_sample{};
     detail::RfidDwell dwell;
+    std::optional<RfidFocus> focus;
     std::deque<sensors::Observation> pending;
     sensors::Throughput stats;
 };
@@ -74,6 +75,22 @@ SensorRig &SensorRig::operator=(SensorRig &&) noexcept = default;
 SensorRig::~SensorRig() = default;
 
 void SensorRig::reset() { state_ = std::make_unique<State>(state_->seed, state_->config); }
+
+bool SensorRig::focus_rfid(std::optional<RfidFocus> focus) noexcept {
+    const auto in = [](Meters length, double low, double high) {
+        return length.value() >= low && length.value() <= high;
+    };
+    if (focus && (!in(focus->forward, 0.0, 2.5) || !in(focus->left, -2.0, 2.0) ||
+                  !in(focus->height, 0.2, 2.5) || !in(focus->half_depth, 0.04, 0.60) ||
+                  !in(focus->half_width, 0.04, 1.6) || !in(focus->half_height, 0.04, 0.25))) {
+        return false;
+    }
+    if (state_->focus != focus) {
+        state_->dwell.clear();
+        state_->focus = focus;
+    }
+    return true;
+}
 
 bool SensorRig::capture(const RobotSimulation &robot) {
     auto &state = *state_;
@@ -104,7 +121,7 @@ bool SensorRig::capture(const RobotSimulation &robot) {
     }
     if (tick % state.config.rfid.period_ticks == 0) {
         publish(detail::scan_rfid(world, robot.truth_.pose, header(sensors::SensorId::rfid),
-                                  state.config.rfid, state.dwell, state.rfid_random));
+                                  state.config.rfid, state.dwell, state.rfid_random, state.focus));
     }
     return true;
 }

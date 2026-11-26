@@ -39,6 +39,17 @@ struct SensorConfig {
     std::uint32_t capacity{24};
 };
 
+// A focused simulated reader field relative to the current robot pose.
+struct RfidFocus {
+    Meters forward;
+    Meters left;
+    Meters height;
+    Meters half_depth;
+    Meters half_width;
+    Meters half_height;
+    bool operator==(const RfidFocus &) const = default;
+};
+
 enum class SensorError { invalid_configuration };
 
 // Own one rig per run. Simulation publishes and reads on the same thread.
@@ -52,6 +63,7 @@ class SensorRig {
     ~SensorRig();
 
     void reset();
+    [[nodiscard]] bool focus_rfid(std::optional<RfidFocus> focus) noexcept;
 
     // Publish at most once per robot step. Gaps invalidate RFID dwell.
     bool capture(const RobotSimulation &robot);
