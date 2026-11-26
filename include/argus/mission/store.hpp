@@ -37,6 +37,20 @@ struct SavedRun {
     std::string report;
 };
 
+inline constexpr std::size_t shelf_history_limit = 20;
+inline constexpr std::size_t shelf_report_limit = 128 * 1024;
+
+struct ShelfAudit {
+    inventory::BinId location;
+    RobotId robot;
+    RunId run;
+    std::uint64_t session;
+    std::uint64_t completed_ms;
+    std::string report;
+};
+
+[[nodiscard]] bool valid_shelf_location(const inventory::BinId &location) noexcept;
+
 class Store {
   public:
     [[nodiscard]] static Result<Store, Error> open(const std::filesystem::path &path);
@@ -47,6 +61,9 @@ class Store {
     [[nodiscard]] Result<std::uint64_t, Error> highest_id();
     [[nodiscard]] Result<std::monostate, Error> save_run(const SavedRun &run);
     [[nodiscard]] Result<std::optional<SavedRun>, Error> saved_run();
+    [[nodiscard]] Result<std::monostate, Error> save_shelf_audit(const ShelfAudit &audit);
+    [[nodiscard]] Result<std::vector<ShelfAudit>, Error>
+    shelf_history(const inventory::BinId &location);
     [[nodiscard]] Result<std::optional<Record>, Error>
     dispatch(std::optional<MissionId> expected = {});
     [[nodiscard]] Result<Record, Error> cancel(MissionId id);

@@ -346,9 +346,16 @@ Result<Report, Error> run_demo(Repository &repository, const Request &request, S
     }
 }
 
-Result<Report, Error> run_observed(Repository &repository, const Request &request,
-                                   SessionId session, simulation::ObservedRun &run,
-                                   bool enable_second_pass) {
+namespace {
+
+struct SurveyPlan {
+    RobotId robot{1};
+    bool second_pass{true};
+    std::optional<std::size_t> shelf{};
+};
+
+Result<Report, Error> run_survey(Repository &repository, const Request &request, SessionId session,
+                                 simulation::ObservedRun &run, SurveyPlan plan) {
     try {
         auto scope = load_scope(repository, request);
         auto made = navigation::Navigator::create(run.mapper.grid(), {.radius = run.radius});
@@ -363,17 +370,23 @@ Result<Report, Error> run_observed(Repository &repository, const Request &reques
             return Error::invalid_data;
         }
         take(repository.start_session(
-            {session, MissionId{session.value()}, RobotId{1}, tick * robot::step_ms}));
+            {session, MissionId{session.value()}, plan.robot, tick * robot::step_ms}));
         Survey survey{run, *made, repository, session};
         Report report{session, request, {}, {}, {}};
         if (std::holds_alternative<FindItem>(request) && scope.targets.empty()) {
             return report;
         }
-        for (const auto site : priorities(scope, request, survey.evidence(), false)) {
-            report.visits.push_back(survey.investigate(site, 0));
+        if (plan.shelf) {
+            report.visits.push_back(survey.investigate(*plan.shelf, 0));
+        } else {
+            for (const auto site : priorities(scope, request, survey.evidence(), false)) {
+                report.visits.push_back(survey.investigate(site, 0));
+            }
         }
         report.first_pass_resolved = resolved(scope, survey.evidence());
-        if (enable_second_pass) {
+        if (plan.shelf) {
+            report.visits.push_back(survey.investigate(*plan.shelf, 1));
+        } else if (plan.second_pass) {
             for (const auto site : priorities(scope, request, survey.evidence(), true)) {
                 report.visits.push_back(survey.investigate(site, 1));
             }
@@ -388,6 +401,24 @@ Result<Report, Error> run_observed(Repository &repository, const Request &reques
     } catch (Error error) {
         return error;
     }
+}
+
+} // namespace
+
+Result<Report, Error> run_observed(Repository &repository, const Request &request,
+                                   SessionId session, simulation::ObservedRun &run,
+                                   bool enable_second_pass) {
+    return run_survey(repository, request, session, run, {.second_pass = enable_second_pass});
+}
+
+Result<Report, Error> run_shelf(Repository &repository, const AuditAisle &site, SessionId session,
+                                RobotId robot, simulation::ObservedRun &run) {
+    const auto position = std::ranges::find(sites, site.aisle, &Site::aisle);
+    if (position == sites.end() || robot.value() == 0) {
+        return Error::invalid_data;
+    }
+    const auto index = static_cast<std::size_t>(position - sites.begin());
+    return run_survey(repository, site, session, run, {.robot = robot, .shelf = index});
 }
 
 } // namespace argus::audit

@@ -93,8 +93,9 @@ TEST(MissionArchive, MigratesVersionOneWithoutDiscardingMissionHistory) {
     const auto opened = sqlite3_open(reinterpret_cast<const char *>(path.c_str()), &raw);
     std::unique_ptr<sqlite3, decltype(&sqlite3_close)> edit{raw, &sqlite3_close};
     ASSERT_EQ(opened, SQLITE_OK);
-    ASSERT_EQ(sqlite3_exec(edit.get(), "DROP TABLE run_archive; PRAGMA user_version=1", nullptr,
-                           nullptr, nullptr),
+    ASSERT_EQ(sqlite3_exec(edit.get(),
+                           "DROP TABLE shelf_audit; DROP TABLE run_archive; PRAGMA user_version=1",
+                           nullptr, nullptr, nullptr),
               SQLITE_OK);
     edit.reset();
 
@@ -264,6 +265,45 @@ TEST(MissionStore, ConcurrentCancellationAndCheckpointHaveOneSerializableOutcome
         }
         EXPECT_EQ(std::get<Error>(scanner.checkpoint(lease, evidence)), Error::stale);
     }
+}
+
+TEST(MissionStore, MigratesAndRetainsBoundedShelfHistoryPerLocation) {
+    Database db;
+    {
+        auto original = std::get<Store>(Store::open(db.file()));
+        ASSERT_TRUE(std::holds_alternative<Record>(original.submit(scan())));
+    }
+    sqlite3 *raw{};
+    ASSERT_EQ(sqlite3_open(db.file().string().c_str(), &raw), SQLITE_OK);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> edit{raw, &sqlite3_close};
+    ASSERT_EQ(sqlite3_exec(edit.get(), "DROP TABLE shelf_audit; PRAGMA user_version=2", nullptr,
+                           nullptr, nullptr),
+              SQLITE_OK);
+    auto store = std::get<Store>(Store::open(db.file()));
+    EXPECT_TRUE(std::holds_alternative<Record>(store.get(MissionId{1})));
+    ShelfAudit first{{"A10J05"}, RobotId{1}, RunId{42}, 1, 10, "example"};
+    ShelfAudit second{{"A20J05"}, RobotId{2}, RunId{43}, 1, 11, "other"};
+    ASSERT_EQ(store.save_shelf_audit(first).index(), 0U);
+    ASSERT_EQ(store.save_shelf_audit(first).index(), 0U);
+    ASSERT_EQ(store.save_shelf_audit(second).index(), 0U);
+    auto conflict = first;
+    conflict.report = "different";
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflict)), Error::conflict);
+    conflict.location = {"../bad"};
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflict)), Error::invalid);
+    for (std::size_t n = 2; n <= shelf_history_limit + 1; ++n) {
+        first.session = n;
+        ASSERT_EQ(store.save_shelf_audit(first).index(), 0U);
+    }
+    auto reopen = std::get<Store>(Store::open(db.file()));
+    const auto history = std::get<std::vector<ShelfAudit>>(reopen.shelf_history(first.location));
+    ASSERT_EQ(history.size(), shelf_history_limit);
+    EXPECT_EQ(history.front().session, shelf_history_limit + 1);
+    EXPECT_EQ(history.back().session, 2U);
+    const auto other = std::get<std::vector<ShelfAudit>>(reopen.shelf_history(second.location));
+    ASSERT_EQ(other.size(), 1U);
+    EXPECT_EQ(other.front().robot, RobotId{2});
+    EXPECT_EQ(other.front().report, second.report);
 }
 
 TEST(MissionStore, ReservePreemptsWorkBeforeTheBatterySignal) {

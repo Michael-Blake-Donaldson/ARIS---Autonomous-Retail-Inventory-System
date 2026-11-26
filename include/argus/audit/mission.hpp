@@ -62,6 +62,11 @@ struct Report {
                                                             simulation::ObservedRun &run,
                                                             bool enable_second_pass = true);
 
+// In the showcase fixture each survey site covers one physical stock shelf.
+[[nodiscard]] Result<Report, inventory::Error>
+run_shelf(inventory::Repository &repository, const AuditAisle &site, inventory::SessionId session,
+          RobotId robot, simulation::ObservedRun &run);
+
 [[nodiscard]] std::string csv_field(std::string_view value);
 [[nodiscard]] inventory::Status write_report(std::ostream &out, const Report &report,
                                              Export format);
