@@ -338,6 +338,10 @@ class Tour {
             break;
         case 1:
             if (!moved_) {
+                // A transient focus or frame stall can hold the initial tour command.
+                if (!frame.exploring()) {
+                    ui.request(LiveAction::explore);
+                }
                 return false;
             }
             ui.camera.mode = CameraMode::follow;
