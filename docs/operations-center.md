@@ -31,10 +31,10 @@ Other warehouses support live driving and mapping. The bundled RFID stockroom su
 ## Run a two-robot shelf audit
 
 1. In **Fleet**, select a robot and an aisle. The four aisle summaries count completed locations and flag reports that need review. Choose **Browse locations** to open the selected aisle. A whole shelf such as `A10J05` is one audit. Expand `A20J06` to choose one of its ten Wacos, such as `A20J06-W01`.
-2. Select **Start location audit**. A free robot can audit any listed location. Choose Robot 2 to start a different location while the first job runs. The same location can have only one active job.
+2. Select **Start location audit**. A free robot can audit any listed location. Choose Robot 2 to start a different location while the first job runs. The same location can have only one active job. To see a shared-aisle yield, assign Robot 1 to `A20J05` and Robot 2 to `A20J06-W01`. The second robot shows **Yielding** at its berth and starts when the first robot clears the shared route.
 3. **Open audit** from Fleet or search the full ID in **Location Audits**. A whole shelf or Waco becomes **Complete** once both views meet the coverage threshold and the report is saved. Its **Needs review** status reflects discrepancies or unresolved evidence. A divided shelf shows how many of its Wacos are complete and contributes only those Wacos to the aisle totals.
 4. Compare photos, DPCIs, expected and observed quantities. Expand **RFID tags**, **Unresolved RFID reads** or **Audit history** for the underlying details. Unresolved reads are excluded from the observed count.
-5. Choose **Inspect robot** for **Robot Maintenance**. It keeps the expanded stockroom scene, original LiDAR rays and full motion trail. Expand **Sensor details** for counters and localization bounds. Fleet shows a hold and its reason beside the affected robot. Use **Hold fleet** to interrupt active jobs. Losing focus also holds them.
+5. Choose **Inspect robot** for **Robot Maintenance**. It keeps the expanded stockroom scene, original LiDAR rays and full motion trail. Expand **Sensor details** for counters and localization bounds. Fleet shows a hold and its reason beside the affected robot. Use **Hold fleet** to interrupt active jobs. Losing focus also holds them. If a robot stops away from its berth, select it and choose **Return to berth** to clear its aisle reservation, then restart the audit if needed.
 
 To retain shelf audits across launches, use the same existing `--operations-data DIRECTORY` each time. Otherwise Location Audits uses temporary session history. The last 20 completed audits for each shelf are retained. [Model and storage decisions](decisions/0016-fleet-shelf-audits.md)
 
@@ -62,7 +62,7 @@ Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonom
 
 On an interactive test host, pass an existing disposable directory to `--ui-smoke DIRECTORY` and then run `--ui-reopen DIRECTORY` in a second process to verify a durable archive.
 
-Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. The CTest entry `argus-desktop.fleet` runs both commands when native tests are enabled.
+Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. Run `--ui-fleet-traffic DIRECTORY` with a second fresh directory to verify yielding and completion of two A20 audits. The CTest entry `argus-desktop.fleet` runs all three commands when native tests are enabled.
 
 Use `--ui-dashboard-record DIRECTORY` with the same disposable data to record the three dashboard views during the scripted review. It uses the framebuffer and stderr format below.
 
