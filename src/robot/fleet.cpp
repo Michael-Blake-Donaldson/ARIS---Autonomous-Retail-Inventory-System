@@ -31,40 +31,63 @@ world::RectMm bounds(world::PrecisePointMm center, double radius) noexcept {
 
 } // namespace
 
+FleetClock::FleetClock(std::chrono::milliseconds peer_timeout) noexcept
+    : peer_timeout_{std::clamp(peer_timeout, std::chrono::milliseconds{1},
+                               std::chrono::milliseconds{60000})} {}
+
 bool FleetClock::step(RobotId id, RobotSimulation &robot, robot::Command command) {
-    if (id.value() < 1 || id.value() > members_.size()) {
+    std::unique_lock lock{mutex_};
+    if (reason_ != FleetStop::running) {
         return false;
     }
-    std::unique_lock lock{mutex_};
-    if (closed_) {
+    if (id.value() < 1 || id.value() > members_.size()) {
+        stop(FleetStop::invalid_pair);
         return false;
     }
     auto &member = members_.at(static_cast<std::size_t>(id.value() - 1));
     if (member.waiting || (member.robot && member.robot != &robot)) {
-        closed_ = true;
-        condition_.notify_all();
+        stop(FleetStop::invalid_pair);
         return false;
     }
     const auto generation = generation_;
     member = {&robot, command, true};
     if (members_[0].waiting && members_[1].waiting) {
-        if (!advance()) {
-            closed_ = true;
+        if (std::chrono::steady_clock::now() >= deadline_) {
+            stop(FleetStop::peer_timeout);
+        } else if (!advance()) {
+            stop(FleetStop::invalid_pair);
         } else {
             ++generation_;
             members_[0].waiting = members_[1].waiting = false;
+            condition_.notify_all();
         }
-        condition_.notify_all();
     } else {
-        condition_.wait(lock, [&] { return closed_ || generation != generation_; });
+        deadline_ = std::chrono::steady_clock::now() + peer_timeout_;
+        const auto deadline = deadline_;
+        if (!condition_.wait_until(lock, deadline, [&] {
+                return reason_ != FleetStop::running || generation != generation_;
+            })) {
+            stop(FleetStop::peer_timeout);
+        }
     }
     return generation != generation_;
 }
 
 void FleetClock::close() noexcept {
     std::scoped_lock lock{mutex_};
-    closed_ = true;
-    condition_.notify_all();
+    stop(FleetStop::closed);
+}
+
+FleetStop FleetClock::stop_reason() const noexcept {
+    std::scoped_lock lock{mutex_};
+    return reason_;
+}
+
+void FleetClock::stop(FleetStop reason) noexcept {
+    if (reason_ == FleetStop::running) {
+        reason_ = reason;
+        condition_.notify_all();
+    }
 }
 
 bool FleetClock::advance() noexcept {

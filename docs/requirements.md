@@ -104,3 +104,11 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Maintainer | Recover a held robot | Interrupt active work outside the berth, verify the visible hold and retained claim, and use Return to berth to release it. Verify the shared-aisle scenario that previously timed out. |
 | Release reviewer | Verify the staged archive | Verify the digest and extract with a system-only PATH. Exercise fleet recovery, review and traffic in the archive and verify the reports and timestamps after replacing the program. |
 | Release reviewer | Verify a fresh Windows installation | Run native acceptance on a clean Windows 11 x64 installation with an interactive OpenGL driver and record the host and driver. Record the gate as open if a separate installation is unavailable. |
+
+## Phase 23 fleet failure recovery
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Team lead | Preserve a completed survey | Save completed coverage before driving back. Interrupt the return and verify the completed report, source link and retained aisle claim independently. |
+| Maintainer | Diagnose a stalled peer | Stop a stalled fleet rendezvous within a bounded wait. Reject late submissions and preserve both robots' last committed ticks. Keep audit history accessible and mark motion unavailable. |
+| Reviewer | Exercise normal and failed runs | Verify the real saved-report interruption path, the missed tick and late peer path, and the existing narrow-aisle and recovery workflows. |

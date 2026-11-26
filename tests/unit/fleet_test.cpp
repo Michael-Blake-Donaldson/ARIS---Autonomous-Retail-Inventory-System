@@ -117,8 +117,34 @@ TEST(SharedFleet, RejectsIndependentWorldCopiesAndReleasesBothParticipants) {
     EXPECT_FALSE(clock.step(RobotId{1}, first, {}));
     peer.join();
     EXPECT_FALSE(stepped);
+    EXPECT_EQ(clock.stop_reason(), FleetStop::invalid_pair);
     EXPECT_EQ(first.telemetry().sample_tick, 0U);
     EXPECT_EQ(second.telemetry().sample_tick, 0U);
+}
+
+TEST(SharedFleet, MissingPeerClosesTheClockWithoutCommittingAPartialTick) {
+    const auto world = std::get<Warehouse>(audit::shared_stockroom_world());
+    auto first = std::get<RobotSimulation>(
+        RobotSimulation::create_at(world, audit::stockroom_berth(RobotId{1})));
+    auto second = std::get<RobotSimulation>(
+        RobotSimulation::create_at(world, audit::stockroom_berth(RobotId{2})));
+    FleetClock clock{std::chrono::milliseconds{100}};
+    const robot::Command forward{.target = {MetersPerSecond{0.6}, robot::RadiansPerSecond{0.0}},
+                                 .deadman = true};
+    bool advanced = false;
+    std::jthread peer{[&] { advanced = clock.step(RobotId{2}, second, forward); }};
+    const bool committed = clock.step(RobotId{1}, first, forward);
+    peer.join();
+    ASSERT_TRUE(advanced);
+    ASSERT_TRUE(committed);
+    EXPECT_FALSE(clock.step(RobotId{1}, first, forward));
+    EXPECT_FALSE(clock.step(RobotId{2}, second, forward));
+    clock.close();
+    EXPECT_EQ(clock.stop_reason(), FleetStop::peer_timeout);
+    EXPECT_EQ(first.telemetry().sample_tick, 1U);
+    EXPECT_EQ(second.telemetry().sample_tick, 1U);
+    EXPECT_EQ(first.telemetry().world_tick, 1U);
+    EXPECT_EQ(second.telemetry().world_tick, 1U);
 }
 
 TEST(AisleAccess, PendingRequestYieldsUntilActiveOwnerClears) {
