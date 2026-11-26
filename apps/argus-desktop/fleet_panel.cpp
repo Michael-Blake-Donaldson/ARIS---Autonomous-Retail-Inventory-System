@@ -463,6 +463,7 @@ void FleetPanel::locations() {
     ImGui::SetNextItemWidth(-1.0F);
     ImGui::InputTextWithHint("##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(),
                              shelf_filter_.size());
+    layout_.location_search = item_center();
     ImGui::Checkbox("Needs review only", &review_only_);
     layout_.review_filter = item_center();
     const auto query = trim_search(shelf_filter_.data());

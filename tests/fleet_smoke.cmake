@@ -35,6 +35,7 @@ foreach(mode IN ITEMS review review-reopen)
     endif()
     if(NOT result STREQUAL "0" OR NOT output MATCHES "\"reviewed\":true" OR
        NOT output MATCHES "\"reviewFilter\":true" OR
+       NOT output MATCHES "\"escapeKeptSession\":true" OR
        NOT output MATCHES "\"recheckLinked\":true" OR
        NOT output MATCHES "\"comparisonVisible\":true" OR
        NOT output MATCHES "\"reopened\":${reopened}")
@@ -49,8 +50,21 @@ execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-traffic "${data}"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 45)
 if(NOT result STREQUAL "0" OR NOT output MATCHES "\"sharedFleet\":true" OR
     NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true" OR
+    NOT output MATCHES "\"firstRobot\":1" OR
     NOT output MATCHES "\"secondLocation\":\"A20J07\"")
     message(FATAL_ERROR "Shared aisle failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
+endif()
+message(STATUS "${output}")
+file(REMOVE_RECURSE "${data}")
+
+set(data "${ARGUS_FLEET_ROOT}/fleet-reverse-${run}")
+file(MAKE_DIRECTORY "${data}")
+execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-traffic-reverse "${data}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 45)
+if(NOT result STREQUAL "0" OR NOT output MATCHES "\"sharedFleet\":true" OR
+    NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true" OR
+    NOT output MATCHES "\"firstRobot\":2")
+    message(FATAL_ERROR "Reverse shared aisle failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
 endif()
 message(STATUS "${output}")
 file(REMOVE_RECURSE "${data}")

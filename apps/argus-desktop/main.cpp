@@ -34,6 +34,7 @@ enum class Mode {
     fleet_smoke,
     fleet_reopen,
     fleet_traffic,
+    fleet_traffic_reverse,
     fleet_data_fault,
     fleet_review,
     fleet_review_reopen,
@@ -46,7 +47,8 @@ bool review_probe(Mode mode) noexcept {
 }
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
-           mode == Mode::fleet_data_fault || mode == Mode::dashboard_record || review_probe(mode);
+           mode == Mode::fleet_traffic_reverse || mode == Mode::fleet_data_fault ||
+           mode == Mode::dashboard_record || review_probe(mode);
 }
 bool captures_video(Mode mode) noexcept {
     return mode == Mode::record || mode == Mode::dashboard_record || mode == Mode::review_record;
@@ -854,6 +856,8 @@ class FleetProbe {
 
 class AisleProbe {
   public:
+    explicit AisleProbe(bool reverse) : first_{reverse ? 1U : 0U}, second_{1U - first_} {}
+
     std::optional<bool> advance(Panels &ui) {
         auto *fleet = ui.fleet.get();
         if (SDL_GetTicks() - started_ >= 35000) {
@@ -883,14 +887,15 @@ class AisleProbe {
             if (SDL_GetTicks() - started_ < 1100 || fleet->busy(0) || fleet->busy(1)) {
                 return std::nullopt;
             }
-            if (!fleet->queue(0, locations_[0]) || !fleet->queue(1, locations_[1])) {
+            if (!fleet->queue(first_, locations_[first_]) ||
+                !fleet->queue(second_, locations_[second_])) {
                 std::cerr << "Could not queue both audits in A20\n";
                 return false;
             }
             queued_ = true;
             return std::nullopt;
         }
-        const auto second = fleet->frame(1);
+        const auto second = fleet->frame(second_);
         const auto speed = std::abs(second.telemetry.measured.linear.value());
         yielded_ =
             yielded_ || (second.traffic_yield && speed < 0.025 && ui.fleet.layout().hold_visible);
@@ -900,11 +905,11 @@ class AisleProbe {
                 return false;
             }
         }
-        if (fleet->state(locations_[0]) != ShelfState::complete) {
+        if (fleet->state(locations_[first_]) != ShelfState::complete) {
             return std::nullopt;
         }
         proceeded_ = proceeded_ || (!second.traffic_yield && speed > 0.05);
-        if (fleet->state(locations_[1]) != ShelfState::complete) {
+        if (fleet->state(locations_[second_]) != ShelfState::complete) {
             return std::nullopt;
         }
         for (std::size_t index = 0; index < locations_.size(); ++index) {
@@ -919,12 +924,15 @@ class AisleProbe {
             return false;
         }
         std::cout << "{\"sharedFleet\":true,\"yielded\":true,\"bothAuditsCompleted\":true,"
-                     "\"secondLocation\":\""
+                     "\"firstRobot\":"
+                  << first_ + 1 << ",\"secondLocation\":\""
                   << Fleet::locations()[locations_[1]].id.value << "\"}\n";
         return true;
     }
 
   private:
+    const std::size_t first_;
+    const std::size_t second_;
     const Uint64 started_{SDL_GetTicks()};
     const std::array<std::size_t, 2> locations_{Fleet::find("A20J05").value(),
                                                 Fleet::find("A20J07").value()};
@@ -938,7 +946,7 @@ class AuditReviewProbe {
     explicit AuditReviewProbe(Mode mode)
         : reopen_{mode == Mode::fleet_review_reopen}, recording_{mode == Mode::review_record} {}
 
-    std::optional<bool> advance(Panels &ui) {
+    std::optional<bool> advance(Panels &ui, SDL_Window *window) {
         input_.reset();
         auto *fleet = ui.fleet.get();
         if (!fleet || fleet->history_error() || SDL_GetTicks() - started_ > 30000) {
@@ -969,8 +977,39 @@ class AuditReviewProbe {
                 evidence_ = history.front().audit.report;
                 review_count_ = fleet->aisle_summary(0).review;
             }
-            stage_ = Stage::filter;
+            stage_ = recording_ ? Stage::filter : Stage::focus_search;
             next_action_ = SDL_GetTicks() + 1050;
+            break;
+        case Stage::focus_search:
+            if (click(layout.location_search)) {
+                stage_ = Stage::escape_search;
+            }
+            break;
+        case Stage::escape_search:
+            if (ImGui::GetIO().WantTextInput) {
+                SDL_Event escape{};
+                escape.type = SDL_EVENT_KEY_DOWN;
+                escape.key.windowID = SDL_GetWindowID(window);
+                escape.key.key = SDLK_ESCAPE;
+                escape.key.scancode = SDL_SCANCODE_ESCAPE;
+                escape.key.down = true;
+                if (!SDL_PushEvent(&escape)) {
+                    return false;
+                }
+                escape.type = SDL_EVENT_KEY_UP;
+                escape.key.down = false;
+                if (!SDL_PushEvent(&escape)) {
+                    return false;
+                }
+                stage_ = Stage::search_closed;
+            }
+            break;
+        case Stage::search_closed:
+            if (!ImGui::GetIO().WantTextInput && ui.panel == Panel::locations &&
+                ui.fleet.selected_location() == location_) {
+                escape_kept_session_ = true;
+                stage_ = Stage::filter;
+            }
             break;
         case Stage::filter:
             if (click(layout.review_filter)) {
@@ -1014,8 +1053,9 @@ class AuditReviewProbe {
                 ImGui::GetIO().DisplaySize.y == 720) {
                 auto &output = recording_ ? std::cerr : std::cout;
                 output << "{\"reviewed\":true,\"recheckLinked\":true,\"reviewFilter\":true,"
-                          "\"comparisonVisible\":true,\"reopened\":"
-                       << (reopen_ ? "true" : "false") << "}\n";
+                          "\"comparisonVisible\":true,\"escapeKeptSession\":"
+                       << (escape_kept_session_ ? "true" : "false")
+                       << ",\"reopened\":" << (reopen_ ? "true" : "false") << "}\n";
                 return true;
             }
             break;
@@ -1026,7 +1066,17 @@ class AuditReviewProbe {
     [[nodiscard]] std::optional<ProbePointer> input() const noexcept { return input_; }
 
   private:
-    enum class Stage { open, filter, mark, queue, recheck, comparison };
+    enum class Stage {
+        open,
+        focus_search,
+        escape_search,
+        search_closed,
+        filter,
+        mark,
+        queue,
+        recheck,
+        comparison
+    };
 
     bool click(std::optional<DashboardPoint> point) {
         if (pressed_) {
@@ -1050,6 +1100,7 @@ class AuditReviewProbe {
     Stage stage_{Stage::open};
     std::size_t review_count_{};
     std::size_t initial_filter_count_{};
+    bool escape_kept_session_{};
     std::string evidence_;
     std::optional<DashboardPoint> pressed_;
     std::optional<ProbePointer> input_;
@@ -1085,8 +1136,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     std::optional<AisleProbe> aisle_probe;
     std::optional<AuditReviewProbe> review;
     const auto started = SDL_GetTicks();
-    if (mode == Mode::fleet_traffic) {
-        aisle_probe.emplace();
+    if (mode == Mode::fleet_traffic || mode == Mode::fleet_traffic_reverse) {
+        aisle_probe.emplace(mode == Mode::fleet_traffic_reverse);
     } else if (review_probe(mode)) {
         review.emplace(mode);
     } else if (verification && mode != Mode::fleet_data_fault) {
@@ -1110,7 +1161,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
                 ui.rebuild = true;
             }
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
-                (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE)) {
+                (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE &&
+                 !event.key.repeat && !ImGui::GetIO().WantTextInput)) {
                 hold();
                 return std::monostate{};
             }
@@ -1180,7 +1232,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             }
         }
         if (review) {
-            if (const auto result = review->advance(ui)) {
+            if (const auto result = review->advance(ui, window)) {
                 hold();
                 return *result ? app::Status{std::monostate{}}
                                : app::Status{Error::graphics_present};
@@ -1308,6 +1360,9 @@ app::Status reopen_fleet(const app::Options &options) {
 app::Status verify_traffic(const app::Options &options) {
     return desktop(options, Mode::fleet_traffic);
 }
+app::Status verify_reverse_traffic(const app::Options &options) {
+    return desktop(options, Mode::fleet_traffic_reverse);
+}
 app::Status verify_data_fault(const app::Options &options) {
     return desktop(options, Mode::fleet_data_fault);
 }
@@ -1328,12 +1383,12 @@ app::Status record_dashboard(const app::Options &options) {
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 &&
-        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
-         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
-         option == "--ui-fleet-traffic" || option == "--ui-fleet-data-fault" ||
-         option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
-         option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
+    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
+                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
+                      option == "--ui-fleet-reopen" || option == "--ui-fleet-traffic" ||
+                      option == "--ui-fleet-traffic-reverse" || option == "--ui-fleet-data-fault" ||
+                      option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
+                      option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             std::cerr << "argus-desktop: Choose an existing operations data directory.\n";
@@ -1350,17 +1405,18 @@ int main(int argc, char **argv) {
             std::cerr << "argus-desktop: Could not access the operations data directory.\n";
             return 2;
         }
-        const auto entry = option == "--ui-smoke"                 ? smoke
-                           : option == "--ui-reopen"              ? reopen
-                           : option == "--ui-fleet-smoke"         ? verify_fleet
-                           : option == "--ui-fleet-reopen"        ? reopen_fleet
-                           : option == "--ui-fleet-traffic"       ? verify_traffic
-                           : option == "--ui-fleet-data-fault"    ? verify_data_fault
-                           : option == "--ui-fleet-review"        ? verify_review
-                           : option == "--ui-fleet-review-reopen" ? reopen_review
-                           : option == "--ui-dashboard-record"    ? record_dashboard
-                           : option == "--ui-fleet-review-record" ? record_review
-                                                                  : interactive;
+        const auto entry = option == "--ui-smoke"                   ? smoke
+                           : option == "--ui-reopen"                ? reopen
+                           : option == "--ui-fleet-smoke"           ? verify_fleet
+                           : option == "--ui-fleet-reopen"          ? reopen_fleet
+                           : option == "--ui-fleet-traffic"         ? verify_traffic
+                           : option == "--ui-fleet-traffic-reverse" ? verify_reverse_traffic
+                           : option == "--ui-fleet-data-fault"      ? verify_data_fault
+                           : option == "--ui-fleet-review"          ? verify_review
+                           : option == "--ui-fleet-review-reopen"   ? reopen_review
+                           : option == "--ui-dashboard-record"      ? record_dashboard
+                           : option == "--ui-fleet-review-record"   ? record_review
+                                                                    : interactive;
         return app::run_application(1, argv, "argus-desktop", entry);
     }
     if (argc == 2 && std::string_view{argv[1]} == "--ui-smoke") {

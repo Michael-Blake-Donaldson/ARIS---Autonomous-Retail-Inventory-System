@@ -20,6 +20,7 @@ struct DashboardLayout {
     std::optional<DashboardPoint> recheck;
     std::optional<DashboardPoint> compare;
     std::optional<DashboardPoint> review_filter;
+    std::optional<DashboardPoint> location_search;
     bool horizontal_scroll{};
     float overflow_position{};
     float overflow_width{};

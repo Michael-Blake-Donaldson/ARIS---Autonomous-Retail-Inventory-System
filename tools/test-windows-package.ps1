@@ -41,6 +41,7 @@ $data = Join-Path $workspace 'Operator data'
 $desktopData = Join-Path $workspace 'Desktop run'
 $fleetData = Join-Path $workspace 'Fleet reports'
 $trafficData = Join-Path $workspace 'Shared aisle'
+$reverseTrafficData = Join-Path $workspace 'Reverse shared aisle'
 $faultData = Join-Path $workspace 'Damaged fleet data'
 $first = Join-Path $workspace 'Program files'
 $replacement = Join-Path $workspace 'Updated program files'
@@ -191,6 +192,7 @@ try {
     $review = $null
     $reviewReopen = $null
     $traffic = $null
+    $reverseTraffic = $null
     $dataFault = $null
     if ($NativeUi) {
         [void][IO.Directory]::CreateDirectory($desktopData)
@@ -207,10 +209,15 @@ try {
             $fleet.auditableLocations -eq 21) 'Installed native fleet workflow failed.'
         $review = Invoke-Portable 'argus-desktop' @('--ui-fleet-review', $fleetData) | ConvertFrom-Json
         Assert-Package ($review.reviewed -and $review.reviewFilter -and $review.recheckLinked -and
-            $review.comparisonVisible) 'Installed audit review workflow failed.'
+            $review.comparisonVisible -and $review.escapeKeptSession) 'Installed audit review workflow failed.'
         $traffic = Invoke-Portable 'argus-desktop' @('--ui-fleet-traffic', $trafficData) | ConvertFrom-Json
         Assert-Package ($traffic.sharedFleet -and $traffic.yielded -and
-            $traffic.bothAuditsCompleted -and $traffic.secondLocation -ceq 'A20J07') 'Installed shared-aisle workflow failed.'
+            $traffic.bothAuditsCompleted -and $traffic.firstRobot -eq 1 -and
+            $traffic.secondLocation -ceq 'A20J07') 'Installed shared-aisle workflow failed.'
+        [void][IO.Directory]::CreateDirectory($reverseTrafficData)
+        $reverseTraffic = Invoke-Portable 'argus-desktop' @('--ui-fleet-traffic-reverse', $reverseTrafficData) | ConvertFrom-Json
+        Assert-Package ($reverseTraffic.sharedFleet -and $reverseTraffic.yielded -and
+            $reverseTraffic.bothAuditsCompleted -and $reverseTraffic.firstRobot -eq 2) 'Installed shared-aisle workflow ignored request order.'
     }
 
     Expand-Archive -LiteralPath $archive -DestinationPath $replacement
@@ -256,7 +263,7 @@ try {
         $checks += @('native-continuous-workflow', 'native-reopen-after-replacement', 'native-data-after-uninstall')
         $checks += @('native-fleet-audits', 'native-audit-review', 'native-shared-aisle',
             'native-fleet-recovery-after-replacement', 'native-review-after-replacement',
-            'native-damaged-journal')
+            'native-damaged-journal', 'native-reverse-aisle-request-order')
     }
     $graphics = if ($NativeUi) {
         @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
@@ -275,6 +282,7 @@ try {
         nativeReview = $review
         nativeReviewReopen = $reviewReopen
         nativeTraffic = $traffic
+        nativeReverseTraffic = $reverseTraffic
         nativeDataFault = $dataFault
         checks = $checks
     } | ConvertTo-Json -Depth 5

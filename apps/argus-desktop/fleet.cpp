@@ -91,6 +91,16 @@ bool Fleet::queue(std::size_t robot, std::size_t location) {
         return false;
     }
     auto &unit = *units_[robot];
+    const RobotId id{robot + 1};
+    const auto berth = audit::stockroom_berth(id).position.x / 1000.0;
+    const auto location_x = locations()[location].center.x_m + 1.15;
+    const auto pose = unit.preview->telemetry.estimated_pose.x.value();
+    const navigation::TrafficSpan span{Meters{std::min({berth, location_x, pose}) - 0.9},
+                                       Meters{std::max({berth, location_x, pose}) + 0.9}};
+    if (!access_->request(id, span)) {
+        unit.status = "Aisle request unavailable";
+        return false;
+    }
     unit.pending = true;
     unit.target = location;
     const auto reports = history(location);
@@ -242,15 +252,6 @@ void Fleet::dispatch(Unit &unit, std::size_t index) {
         return;
     }
     const auto &location = locations()[*unit.target];
-    const auto berth = audit::stockroom_berth(id).position.x / 1000.0;
-    const auto location_x = location.center.x_m + 1.15;
-    const auto pose = unit.preview->telemetry.estimated_pose.x.value();
-    const navigation::TrafficSpan span{Meters{std::min({berth, location_x, pose}) - 0.9},
-                                       Meters{std::max({berth, location_x, pose}) + 0.9}};
-    if (!access_->request(id, span)) {
-        unit.status = "Aisle request unavailable";
-        return;
-    }
     Job job{.kind = JobKind::shelf_audit,
             .shelf =
                 ShelfAssignment{location.id, id, unit.preview->run, journal_, unit.recheck_of}};
@@ -263,9 +264,13 @@ void Fleet::dispatch(Unit &unit, std::size_t index) {
 }
 
 void Fleet::hold() {
-    for (auto &unit : units_) {
+    for (std::size_t i = 0; i < units_.size(); ++i) {
+        auto &unit = units_[i];
         if (unit) {
             if (std::exchange(unit->pending, false)) {
+                if (!unit->clearing) {
+                    access_->finish(RobotId{i + 1}, false);
+                }
                 unit->clearing = false;
                 unit->status = "Audit held before dispatch";
             }
