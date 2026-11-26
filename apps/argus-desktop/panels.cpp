@@ -98,6 +98,34 @@ void camera_picker(Camera &camera, bool archived = false) {
     }
 }
 
+void workspace_header(float width, float height) {
+    pane("##header", {0, 0}, {width, height}, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PushStyleColor(ImGuiCol_Text, teal);
+    heading("ARGUS", 31.0F);
+    ImGui::PopStyleColor();
+    ImGui::SameLine(142.0F);
+    ImGui::AlignTextToFramePadding();
+    heading("Warehouse operations", 23.0F);
+    ImGui::SameLine();
+    quiet("Simulation");
+    ImGui::End();
+}
+
+void scene_camera(Camera &camera, bool archived) {
+    camera_picker(camera, archived);
+    const auto remaining = ImGui::GetContentRegionAvail();
+    ImGui::InvisibleButton("##orbit-hitbox",
+                           {std::max(1.0F, remaining.x), std::max(1.0F, remaining.y)},
+                           ImGuiButtonFlags_MouseButtonRight);
+    if (ImGui::IsItemActive()) {
+        const auto delta = ImGui::GetIO().MouseDelta;
+        camera.orbit(delta.x, delta.y);
+    }
+    if (ImGui::IsItemHovered()) {
+        camera.scale(ImGui::GetIO().MouseWheel);
+    }
+}
+
 } // namespace
 
 void configure_style() {
@@ -377,23 +405,16 @@ void Panels::hold_fleet() {
 }
 
 Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
+    if (fleet_panel(panel)) {
+        return draw_dashboard(photos);
+    }
     const auto size = ImGui::GetIO().DisplaySize;
     const auto left = std::clamp(size.x * 0.148F, 160.0F, 210.0F);
-    const auto right = panel == Panel::locations ? std::clamp(size.x * 0.36F, 335.0F, 565.0F)
-                                                 : std::clamp(size.x * 0.269F, 260.0F, 392.0F);
+    const auto right = std::clamp(size.x * 0.269F, 260.0F, 392.0F);
     constexpr float header = 72.0F;
     constexpr float footer = 41.0F;
     const auto body = std::max(1.0F, size.y - header - footer);
-    pane("##header", {0, 0}, {size.x, header}, ImGuiWindowFlags_NoScrollbar);
-    ImGui::PushStyleColor(ImGuiCol_Text, teal);
-    heading("ARGUS", 31.0F);
-    ImGui::PopStyleColor();
-    ImGui::SameLine(142.0F);
-    ImGui::AlignTextToFramePadding();
-    heading("Warehouse operations", 23.0F);
-    ImGui::SameLine();
-    quiet("Simulation");
-    ImGui::End();
+    workspace_header(size.x, header);
 
     pane("##nav", {0, header}, {left, body});
     title("Workspace");
@@ -413,36 +434,30 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
     }
     ImGui::EndDisabled();
     const auto frame = display_frame();
-    const bool fleet_view = fleet_panel(panel);
     ImGui::Spacing();
     ImGui::Separator();
-    if (!fleet_view) {
-        quiet("Live robot");
-        ImGui::BeginDisabled(worker_driving() || reviewing());
-        if (ImGui::Button(frame.exploring() ? "Pause exploration" : "Explore", {-1, 0})) {
-            request(frame.exploring() ? LiveAction::pause : LiveAction::explore);
-        }
-        ImGui::EndDisabled();
-        if (worker_driving() && ImGui::Button("Hold routed work", {-1, 0})) {
-            interrupt();
-        }
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.44F, 0.16F, 0.21F, 1.0F});
-        if (ImGui::Button("Emergency stop", {-1, 0})) {
-            request(LiveAction::emergency_stop);
-        }
-        ImGui::PopStyleColor();
-    } else if (ImGui::Button("Hold fleet", {-1, 0})) {
-        hold_fleet();
+    quiet("Live robot");
+    ImGui::BeginDisabled(worker_driving() || reviewing());
+    if (ImGui::Button(frame.exploring() ? "Pause exploration" : "Explore", {-1, 0})) {
+        request(frame.exploring() ? LiveAction::pause : LiveAction::explore);
     }
+    ImGui::EndDisabled();
+    if (worker_driving() && ImGui::Button("Hold routed work", {-1, 0})) {
+        interrupt();
+    }
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.44F, 0.16F, 0.21F, 1.0F});
+    if (ImGui::Button("Emergency stop", {-1, 0})) {
+        request(LiveAction::emergency_stop);
+    }
+    ImGui::PopStyleColor();
     ImGui::End();
 
     const Canvas canvas{left, header, std::max(1.0F, size.x - left - right), body};
     pane("##warehouse", {canvas.x, canvas.y}, {canvas.width, canvas.height},
          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
-    heading(fleet_view       ? "Selected robot"
-            : frame.archived ? "Saved occupancy"
-            : map_only       ? "Estimated occupancy"
-                             : "Live warehouse",
+    heading(frame.archived ? "Saved occupancy"
+            : map_only     ? "Estimated occupancy"
+                           : "Live warehouse",
             22.0F);
     if (!frame.archived && !worker_driving() && truth_visible(panel, developer_truth) &&
         !map_only) {
@@ -452,24 +467,13 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
     } else {
         quiet("Captured map evidence");
     }
-    camera_picker(camera, frame.archived);
-    const auto remaining = ImGui::GetContentRegionAvail();
-    ImGui::InvisibleButton("##orbit-hitbox",
-                           {std::max(1.0F, remaining.x), std::max(1.0F, remaining.y)},
-                           ImGuiButtonFlags_MouseButtonRight);
-    if (ImGui::IsItemActive()) {
-        const auto delta = ImGui::GetIO().MouseDelta;
-        camera.orbit(delta.x, delta.y);
-    }
-    if (ImGui::IsItemHovered()) {
-        camera.scale(ImGui::GetIO().MouseWheel);
-    }
+    scene_camera(camera, frame.archived);
     ImGui::End();
 
     pane("##details", {size.x - right, header}, {right, body});
     heading(frame.archived ? "Lineage / History" : panel_names[static_cast<std::size_t>(panel)]);
     ImGui::Separator();
-    if (!fleet_view && worker_driving() && panel != Panel::live_map) {
+    if (worker_driving() && panel != Panel::live_map) {
         const auto elapsed = frame.telemetry.sample_tick - job_start_tick_;
         ImGui::Text("Live robot   %.1f s elapsed",
                     static_cast<double>(elapsed) * robot::step_ms / 1000.0);
@@ -481,9 +485,7 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
         }
         ImGui::Separator();
     }
-    if (fleet_view) {
-        fleet.draw(panel, photos);
-    } else if (frame.archived) {
+    if (frame.archived) {
         history();
     } else {
         panel_contents(frame, focused);
@@ -492,8 +494,7 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
 
     pane("##footer", {0, size.y - footer}, {size.x, footer}, ImGuiWindowFlags_NoScrollbar);
     ImGui::TextColored(teal, "%s",
-                       fleet_view          ? "FLEET"
-                       : frame.archived    ? "SAVED RUN"
+                       frame.archived      ? "SAVED RUN"
                        : worker_driving()  ? "ROUTED WORK"
                        : frame.exploring() ? "AUTONOMOUS"
                                            : "MANUAL");
@@ -510,15 +511,77 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
         ImGui::Text("RFID %zu reads", frame.rfid_reads);
     }
     ImGui::SameLine();
-    if (fleet_view && fleet.get()) {
-        quiet(fleet.get()->status(fleet.selected()));
-    } else {
-        quiet(status_);
-    }
+    quiet(status_);
     ImGui::End();
     constexpr float toolbar_height = 102.0F;
     return {canvas.x, canvas.y + toolbar_height, canvas.width,
             std::max(1.0F, canvas.height - toolbar_height)};
+}
+
+Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
+    fleet.begin_frame();
+    const auto size = ImGui::GetIO().DisplaySize;
+    constexpr float header = 62.0F;
+    constexpr float nav = 188.0F;
+    const auto right = std::clamp(size.x * 0.245F, 258.0F, 340.0F);
+    const auto body = std::max(1.0F, size.y - header);
+    const auto center = std::max(1.0F, size.x - nav - right);
+    workspace_header(size.x, header);
+    pane("##dashboard-nav", {0, header}, {nav, body});
+    for (const auto view : {Panel::fleet, Panel::locations, Panel::maintenance}) {
+        if (ImGui::Selectable(panel_names[static_cast<std::size_t>(view)].data(), panel == view, 0,
+                              {0, 32.0F})) {
+            panel = view;
+        }
+        if (view == Panel::maintenance) {
+            fleet.mark_maintenance_link();
+        }
+    }
+    ImGui::Separator();
+    if (ImGui::Button("Hold fleet", {-1, 0})) {
+        hold_fleet();
+    }
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Single robot")) {
+        for (std::size_t index = 0; index < static_cast<std::size_t>(Panel::fleet); ++index) {
+            if (ImGui::Selectable(panel_names[index].data(), false, 0, {0, 25.0F})) {
+                panel = static_cast<Panel>(index);
+            }
+        }
+    }
+    fleet.check_horizontal_scroll();
+    ImGui::End();
+    if (!fleet_panel(panel)) {
+        return {};
+    }
+
+    const auto shown = panel;
+    const bool sensors = shown == Panel::maintenance;
+    const bool map_view = shown == Panel::fleet;
+    pane("##dashboard-center", {nav, header}, {center, body},
+         sensors ? ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar : 0);
+    Canvas viewport{};
+    if (map_view) {
+        heading("Warehouse map");
+        fleet.draw_map();
+    } else if (sensors) {
+        ImGui::Text("Robot %zu  /  %s", fleet.selected() + 1,
+                    Fleet::locations[fleet.selected()].label.data());
+        scene_camera(camera, false);
+        viewport = {nav, header + 76.0F, center, std::max(1.0F, body - 76.0F)};
+    } else {
+        fleet.draw_audit(photos);
+    }
+    fleet.check_horizontal_scroll();
+    ImGui::End();
+
+    pane("##dashboard-sidebar", {size.x - right, header}, {right, body});
+    heading(map_view ? "Robots" : sensors ? "Maintenance" : "Locations");
+    ImGui::Separator();
+    fleet.draw_sidebar(panel);
+    fleet.check_horizontal_scroll();
+    ImGui::End();
+    return viewport;
 }
 
 void Panels::panel_contents(const LiveFrame &frame, bool focused) {

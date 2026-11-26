@@ -66,6 +66,7 @@ class Panels {
     [[nodiscard]] bool save();
 
   private:
+    [[nodiscard]] Canvas draw_dashboard(const FleetPhotos &photos);
     void close_review() noexcept;
     void panel_contents(const LiveFrame &frame, bool focused);
     void overview(const LiveFrame &frame, bool focused);
