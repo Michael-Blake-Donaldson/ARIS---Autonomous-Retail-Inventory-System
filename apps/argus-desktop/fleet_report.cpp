@@ -18,7 +18,8 @@ constexpr std::uint64_t expected_limit =
 } // namespace
 
 bool ShelfReport::needs_review() const noexcept {
-    return !unidentified.empty() || std::ranges::any_of(products, &ShelfProduct::discrepancy);
+    return !unidentified.empty() || !unresolved.empty() ||
+           std::ranges::any_of(products, &ShelfProduct::discrepancy);
 }
 
 std::optional<ShelfReport> make_shelf_report(const audit::Report &report,
@@ -73,9 +74,14 @@ std::string encode_shelf_report(const ShelfReport &report) {
     for (const auto &epc : report.unidentified) {
         unidentified.push_back(epc.value);
     }
-    return Json{{"version", 1},
+    Json unresolved = Json::array();
+    for (const auto &epc : report.unresolved) {
+        unresolved.push_back(epc.value);
+    }
+    return Json{{"version", 2},
                 {"products", std::move(products)},
-                {"unidentified", std::move(unidentified)}}
+                {"unidentified", std::move(unidentified)},
+                {"unresolved", std::move(unresolved)}}
         .dump();
 }
 
@@ -92,7 +98,11 @@ std::optional<ShelfReport> decode_shelf_report(std::string_view bytes) {
             }
             return true;
         });
-        if (!root.is_object() || root.size() != 3 || root.at("version") != 1) {
+        if (!root.is_object()) {
+            return std::nullopt;
+        }
+        const auto &version = root.at("version");
+        if (!((version == 1 && root.size() == 3) || (version == 2 && root.size() == 4))) {
             return std::nullopt;
         }
         const auto &products = root.at("products");
@@ -103,6 +113,7 @@ std::optional<ShelfReport> decode_shelf_report(std::string_view bytes) {
         }
         ShelfReport report;
         std::set<std::string, std::less<>> epcs;
+        std::set<std::string, std::less<>> confirmed;
         for (const auto &entry : products) {
             if (!entry.is_array() || entry.size() != 6 || !entry[2].is_number_unsigned() ||
                 entry[2] > static_cast<unsigned>(inventory::Category::home_goods) ||
@@ -129,6 +140,9 @@ std::optional<ShelfReport> decode_shelf_report(std::string_view bytes) {
                 if (!inventory::valid(epc) || !epcs.insert(epc.value).second) {
                     return std::nullopt;
                 }
+                if (tag[1].get<bool>()) {
+                    confirmed.insert(epc.value);
+                }
                 row.tags.push_back({std::move(epc), tag[1].get<bool>()});
             }
             if (row.observed != static_cast<std::size_t>(
@@ -145,7 +159,23 @@ std::optional<ShelfReport> decode_shelf_report(std::string_view bytes) {
             if (!inventory::valid(epc) || !epcs.insert(epc.value).second) {
                 return std::nullopt;
             }
+            confirmed.insert(epc.value);
             report.unidentified.push_back(std::move(epc));
+        }
+        if (version == 2) {
+            const auto &pending = root.at("unresolved");
+            if (!pending.is_array() || pending.size() > max_total_epcs) {
+                return std::nullopt;
+            }
+            std::set<std::string, std::less<>> unique;
+            for (const auto &item : pending) {
+                inventory::Epc epc{item.get<std::string>()};
+                if (!inventory::valid(epc) || confirmed.contains(epc.value) ||
+                    !unique.insert(epc.value).second) {
+                    return std::nullopt;
+                }
+                report.unresolved.push_back(std::move(epc));
+            }
         }
         return report;
     } catch (const Json::exception &) {

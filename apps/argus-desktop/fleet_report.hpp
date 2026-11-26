@@ -20,6 +20,7 @@ struct ShelfProduct {
 struct ShelfReport {
     std::vector<ShelfProduct> products;
     std::vector<inventory::Epc> unidentified;
+    std::vector<inventory::Epc> unresolved;
     [[nodiscard]] bool needs_review() const noexcept;
 };
 
