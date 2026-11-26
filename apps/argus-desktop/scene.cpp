@@ -55,22 +55,9 @@ void Scene::line(std::vector<Vertex> &mesh, mapping::Point a, mapping::Point b, 
     mesh.push_back({static_cast<float>(b.x_m), static_cast<float>(b.y_m), level, color});
 }
 
-void Scene::surface(std::vector<Vertex> &mesh, double x, double y, double w, double h, double z,
-                    Color color) {
-    const auto left = static_cast<float>(x);
-    const auto right = static_cast<float>(x + w);
-    const auto bottom = static_cast<float>(y);
-    const auto top = static_cast<float>(y + h);
-    const auto level = static_cast<float>(z);
-    mesh.insert(mesh.end(), {{left, bottom, level, color},
-                             {right, bottom, level, color},
-                             {right, top, level, color},
-                             {left, top, level, color}});
-}
-
 void Scene::box(std::vector<Vertex> &mesh, double x, double y, double w, double h, double base,
                 double height, Color color) {
-    surface(mesh, x, y, w, h, base + height, color);
+    append_surface(mesh, x, y, w, h, base + height, color);
     const auto low = static_cast<float>(base);
     const auto high = static_cast<float>(base + height);
     const std::array<std::array<float, 2>, 4> vertices{
@@ -120,12 +107,12 @@ void Scene::draw_layout() {
                            : zone.kind == world::ZoneKind::dock      ? Color{55, 106, 107, 255}
                            : zone.kind == world::ZoneKind::receiving ? Color{114, 82, 54, 255}
                                                                      : Color{52, 76, 91, 255};
-        surface(ground_, area.x, area.y, area.w, area.h, 0.004, color);
+        append_surface(ground_, area.x, area.y, area.w, area.h, 0.004, color);
         if (zone.kind == world::ZoneKind::charging) {
             box(ground_, area.x, area.y, area.w, area.h, 0.015, 0.045, color);
             for (int i = 1; i <= 3; ++i) {
-                surface(ground_, area.x + area.w * i / 4.0, area.y + 0.07, area.w * 0.07,
-                        std::max(0.01, area.h - 0.14), 0.064, {134, 228, 194, 255});
+                append_surface(ground_, area.x + area.w * i / 4.0, area.y + 0.07, area.w * 0.07,
+                               std::max(0.01, area.h - 0.14), 0.064, {134, 228, 194, 255});
             }
         }
     }
@@ -165,28 +152,10 @@ void Scene::draw_layout() {
 
 void Scene::draw_overlays(const LiveFrame &frame, const Overlays &overlays,
                           std::span<const EvidenceRegion> uncertainty) {
-    const auto &spec = frame.grid.spec();
     if (overlays.occupancy) {
-        temporary_.clear();
-        const auto total = static_cast<std::uint64_t>(frame.grid.rows()) * frame.grid.columns();
-        const auto stride = static_cast<std::uint32_t>(
-            std::max(1.0, std::ceil(std::sqrt(static_cast<double>(total) / 18000.0))));
-        for (std::uint32_t y = 0; y < frame.grid.rows(); y += stride) {
-            for (std::uint32_t x = 0; x < frame.grid.columns(); x += stride) {
-                const auto cell = frame.grid.occupancy({x, y});
-                if (cell == mapping::Occupancy::unknown) {
-                    continue;
-                }
-                const auto left = x * spec.cell_mm;
-                const auto bottom = y * spec.cell_mm;
-                surface(temporary_, left / mm, bottom / mm,
-                        std::min(spec.cell_mm, spec.width_mm - left) / mm,
-                        std::min(spec.cell_mm, spec.height_mm - bottom) / mm, 0.026,
-                        cell == mapping::Occupancy::free ? Color{57, 183, 175, 120}
-                                                         : Color{244, 159, 82, 220});
-            }
-        }
-        submit(temporary_, GL_QUADS);
+        ++occupancy_frames_;
+        occupancy_.rebuild(frame.grid);
+        submit(occupancy_.vertices(), GL_QUADS);
     }
     temporary_.clear();
     const auto trace = [&](std::span<const mapping::Point> points, Color color, double z) {
@@ -264,7 +233,7 @@ void Scene::draw(Viewport viewport, const LiveFrame &frame, const Camera &camera
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     if (map_only) {
         temporary_.clear();
-        surface(temporary_, floor.x, floor.y, floor.w, floor.h, 0.0, {39, 54, 68, 255});
+        append_surface(temporary_, floor.x, floor.y, floor.w, floor.h, 0.0, {39, 54, 68, 255});
         submit(temporary_, GL_QUADS);
     } else {
         submit(ground_, GL_QUADS);

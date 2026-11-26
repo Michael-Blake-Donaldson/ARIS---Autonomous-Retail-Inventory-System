@@ -89,7 +89,8 @@ add_library(argus_mission STATIC src/mission/model.cpp src/mission/store.cpp)
 target_link_libraries(argus_mission PUBLIC argus_inventory PRIVATE unofficial::sqlite3::sqlite3)
 argus_project_target(argus_mission)
 
-add_library(argus_operations_model STATIC apps/argus-desktop/operations_model.cpp)
+add_library(argus_operations_model STATIC apps/argus-desktop/operations_model.cpp
+    apps/argus-desktop/occupancy_mesh.cpp)
 target_include_directories(argus_operations_model PUBLIC apps/argus-desktop)
 target_link_libraries(argus_operations_model PUBLIC argus_navigation)
 argus_project_target(argus_operations_model)
@@ -187,6 +188,11 @@ if(BUILD_TESTING)
     argus_project_target(argus-scale-evaluation)
     add_test(NAME argus-scale-evaluation COMMAND argus-scale-evaluation 10000 200)
     set_tests_properties(argus-scale-evaluation PROPERTIES TIMEOUT 90)
+
+    add_executable(argus-occupancy-evaluation tests/evaluation/occupancy_evaluation.cpp)
+    target_link_libraries(argus-occupancy-evaluation PRIVATE argus_operations_model
+        nlohmann_json::nlohmann_json)
+    argus_project_target(argus-occupancy-evaluation)
 
     function(argus_cli_smoke target)
         add_test(NAME ${target}.cli COMMAND "${CMAKE_COMMAND}"

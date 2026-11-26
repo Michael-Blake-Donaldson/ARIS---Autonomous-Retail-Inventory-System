@@ -88,7 +88,7 @@ class Graphics {
     void event(const SDL_Event &event) const { ImGui_ImplSDL3_ProcessEvent(&event); }
 
     bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
-              Recorder *recorder) const {
+              Recorder *recorder, std::optional<double> *scene_ms = nullptr) const {
         int width{};
         int height{};
         if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) {
@@ -130,8 +130,13 @@ class Graphics {
             frame.archived ? Overlays{.lidar = false, .occupancy = true} : ui.overlays;
         auto camera = ui.camera;
         camera.mode = view_camera_mode(camera.mode, frame.archived);
+        const auto scene_started = scene_ms ? SDL_GetPerformanceCounter() : 0;
         scene.draw(viewport, frame, camera, overlays, regions, developer ? &*developer : nullptr,
                    frame.archived || ui.map_only);
+        if (scene_ms) {
+            *scene_ms = static_cast<double>(SDL_GetPerformanceCounter() - scene_started) * 1000.0 /
+                        static_cast<double>(SDL_GetPerformanceFrequency());
+        }
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
         if (recorder && !recorder->capture(width, height)) {
             return false;
@@ -423,12 +428,15 @@ class Tour {
         return false;
     }
 
-    void frame(double millis, const Panels &ui) {
+    void frame(double millis, std::optional<double> scene_ms, const Panels &ui) {
         if (mode_ == Mode::interactive) {
             return;
         }
         if (samples_.size() < 5000) {
             samples_.push_back(millis);
+        }
+        if (scene_ms && scene_samples_.size() < 5000) {
+            scene_samples_.push_back(*scene_ms);
         }
         if (ui.panel == Panel::find_product) {
             max_rows_ = std::max(max_rows_, ui.painted_rows());
@@ -437,7 +445,7 @@ class Tour {
 
     void graphics_rebuilt() noexcept { rebuilt_ = true; }
 
-    bool summary() {
+    bool summary(const Scene &scene) {
         if (mode_ == Mode::interactive) {
             return true;
         }
@@ -447,7 +455,11 @@ class Tour {
             return reopened_;
         }
         std::ranges::sort(samples_);
-        const auto p95 = samples_.empty() ? 10000.0 : samples_[samples_.size() * 95 / 100];
+        std::ranges::sort(scene_samples_);
+        const auto percentile = [](const std::vector<double> &samples, std::size_t rank) {
+            return samples.empty() ? 10000.0 : samples[(samples.size() * rank + 99) / 100 - 1];
+        };
+        const auto p95 = percentile(samples_, 95);
         auto &output = mode_ == Mode::record ? std::cerr : std::cout;
         output << "{\"workflowTour\":" << std::boolalpha << finished_
                << ",\"movingObserved\":" << moved_ << ",\"truthIsolated\":" << isolated_
@@ -456,7 +468,13 @@ class Tour {
                << ",\"savedRunReopened\":" << reopened_ << ",\"lidarRecovered\":" << saw_recovery_
                << ",\"resized\":" << resized_ << ",\"contextRebuilt\":" << rebuilt_
                << ",\"frames\":" << samples_.size() << ",\"maxVisibleCatalogRows\":" << max_rows_
-               << ",\"frameP95Ms\":" << p95 << "}\n";
+               << ",\"frameP95Ms\":" << p95 << ",\"frameP99Ms\":" << percentile(samples_, 99)
+               << ",\"sceneP95Ms\":" << percentile(scene_samples_, 95)
+               << ",\"sceneP99Ms\":" << percentile(scene_samples_, 99)
+               << ",\"occupancyFrames\":" << scene.occupancy_frames()
+               << ",\"occupancyBuilds\":" << scene.occupancy_mesh().builds()
+               << ",\"occupancyVerticesGenerated\":" << scene.occupancy_mesh().generated_vertices()
+               << "}\n";
         return finished_ && moved_ && isolated_ && saw_dropout_ && saw_recovery_ && continuous_ &&
                saw_worker_ && reopened_ && resized_ && rebuilt_ && samples_.size() >= 30 &&
                max_rows_ > 0 && max_rows_ < 40 && p95 < 50.0;
@@ -487,6 +505,7 @@ class Tour {
     bool isolated_{};
     std::optional<mapping::Point> origin_;
     std::vector<double> samples_;
+    std::vector<double> scene_samples_;
     std::size_t max_rows_{};
 };
 
@@ -537,8 +556,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         }
         if (tour.advance(ui, window, ui.frame())) {
             hold();
-            return tour.summary() ? app::Status{std::monostate{}}
-                                  : app::Status{Error::graphics_present};
+            return tour.summary(scene) ? app::Status{std::monostate{}}
+                                       : app::Status{Error::graphics_present};
         }
         const auto now = SDL_GetTicks();
         auto due = (now - last_step) / robot::step_ms;
@@ -586,7 +605,9 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             }
             tour.graphics_rebuilt();
         }
-        if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture)) {
+        std::optional<double> scene_ms;
+        if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture,
+                                         mode == Mode::interactive ? nullptr : &scene_ms)) {
             hold();
             if (capture || !graphics.rebuild() ||
                 !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr)) {
@@ -595,7 +616,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         }
         const double elapsed = static_cast<double>(SDL_GetPerformanceCounter() - before) * 1000.0 /
                                static_cast<double>(SDL_GetPerformanceFrequency());
-        tour.frame(elapsed, ui);
+        tour.frame(elapsed, scene_ms, ui);
         SDL_Delay(minimized ? 30U : 12U);
     }
 }
