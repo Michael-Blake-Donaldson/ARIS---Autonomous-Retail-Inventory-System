@@ -370,7 +370,7 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                 lock.unlock();
                 if (!fleet->engine->step({}, LiveAction::none, false)) {
                     fleet->access->finish(fleet->id, false);
-                    std::scoped_lock lock{mutex_};
+                    lock.lock();
                     available_ = false;
                     busy_ = false;
                     pending_.reset();
