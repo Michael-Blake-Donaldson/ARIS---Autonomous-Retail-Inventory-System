@@ -306,6 +306,31 @@ TEST(MissionStore, MigratesAndRetainsBoundedShelfHistoryPerLocation) {
     EXPECT_EQ(other.front().report, second.report);
 }
 
+TEST(MissionStore, MigratesExistingShelfHistoryAndKeepsAdjacentWacosSeparate) {
+    Database db;
+    const ShelfAudit earlier{{"A20J05"}, RobotId{1}, RunId{42}, 1, 10, "old shelf"};
+    {
+        auto store = std::get<Store>(Store::open(db.file()));
+        ASSERT_EQ(store.save_shelf_audit(earlier).index(), 0U);
+    }
+    sqlite3 *raw{};
+    ASSERT_EQ(sqlite3_open(db.file().string().c_str(), &raw), SQLITE_OK);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> edit{raw, &sqlite3_close};
+    ASSERT_EQ(sqlite3_exec(edit.get(), "PRAGMA user_version=3", nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    auto store = std::get<Store>(Store::open(db.file()));
+    ShelfAudit leaf{{"A20J06-W01"}, RobotId{2}, RunId{43}, 1, 12, "Waco evidence"};
+    ASSERT_EQ(store.save_shelf_audit(leaf).index(), 0U);
+    const auto whole = std::get<std::vector<ShelfAudit>>(store.shelf_history(earlier.location));
+    ASSERT_EQ(whole.size(), 1U);
+    EXPECT_EQ(whole.front().report, earlier.report);
+    const auto history = std::get<std::vector<ShelfAudit>>(store.shelf_history(leaf.location));
+    ASSERT_EQ(history.size(), 1U);
+    EXPECT_EQ(history.front().report, leaf.report);
+    EXPECT_TRUE(std::get<std::vector<ShelfAudit>>(store.shelf_history({"A20J06-W02"})).empty());
+    EXPECT_EQ(std::get<Error>(store.shelf_history({"A20J06-W00"})), Error::invalid);
+}
+
 TEST(MissionStore, ReservePreemptsWorkBeforeTheBatterySignal) {
     Database db;
     auto store = std::get<Store>(Store::open(db.file()));

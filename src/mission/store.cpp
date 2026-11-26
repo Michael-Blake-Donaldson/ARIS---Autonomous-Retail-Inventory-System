@@ -65,6 +65,29 @@ constexpr auto shelf_schema = R"sql(
     PRAGMA user_version=3;
 )sql";
 
+constexpr auto location_schema = R"sql(
+    DROP INDEX shelf_audit_history;
+    ALTER TABLE shelf_audit RENAME TO shelf_audit_v3;
+    CREATE TABLE shelf_audit (
+        id INTEGER PRIMARY KEY,
+        location TEXT NOT NULL CHECK(
+            location GLOB '[A-Z][0-9][0-9][A-Z][0-9][0-9]' OR
+            (location GLOB '[A-Z][0-9][0-9][A-Z][0-9][0-9]-W[0-9][0-9]' AND
+             substr(location,9,2) <> '00')),
+        robot INTEGER NOT NULL CHECK(robot>0),
+        run INTEGER NOT NULL CHECK(run>0),
+        session INTEGER NOT NULL CHECK(session>0),
+        completed_ms INTEGER NOT NULL CHECK(completed_ms>0),
+        report TEXT NOT NULL CHECK(length(CAST(report AS BLOB)) BETWEEN 1 AND 131072),
+        UNIQUE(location, robot, run, session)
+    ) STRICT;
+    INSERT INTO shelf_audit SELECT id,location,robot,run,session,completed_ms,report
+        FROM shelf_audit_v3;
+    DROP TABLE shelf_audit_v3;
+    CREATE INDEX shelf_audit_history ON shelf_audit(location, id DESC);
+    PRAGMA user_version=4;
+)sql";
+
 [[noreturn]] void fail(int code) {
     throw(code & 0xff) == SQLITE_BUSY || (code & 0xff) == SQLITE_LOCKED ? Error::busy
                                                                         : Error::storage;
@@ -332,7 +355,7 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         const auto owner = scalar(db.get(), "PRAGMA application_id");
         const bool fresh = version == 0 && owner == 0 &&
                            scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0;
-        if ((!fresh && ((version < 1 || version > 3) || owner != identity)) ||
+        if ((!fresh && ((version < 1 || version > 4) || owner != identity)) ||
             !storage::configure_database(db.get(), scalar, storage::max_database_bytes)) {
             throw Error::storage;
         }
@@ -344,6 +367,9 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         }
         if (version < 3) {
             exec(db.get(), shelf_schema);
+        }
+        if (version < 4) {
+            exec(db.get(), location_schema);
         }
         transaction.commit();
         return Store{std::move(db)};
@@ -410,8 +436,10 @@ bool valid_shelf_location(const inventory::BinId &location) noexcept {
     const auto &code = location.value;
     const auto digit = [](char ch) { return ch >= '0' && ch <= '9'; };
     const auto letter = [](char ch) { return ch >= 'A' && ch <= 'Z'; };
-    return code.size() == 6 && letter(code[0]) && digit(code[1]) && digit(code[2]) &&
-           letter(code[3]) && digit(code[4]) && digit(code[5]);
+    return (code.size() == 6 || code.size() == 10) && letter(code[0]) && digit(code[1]) &&
+           digit(code[2]) && letter(code[3]) && digit(code[4]) && digit(code[5]) &&
+           (code.size() == 6 || (code[6] == '-' && code[7] == 'W' && digit(code[8]) &&
+                                 digit(code[9]) && code.substr(8) != "00"));
 }
 
 Result<std::monostate, Error> Store::save_shelf_audit(const ShelfAudit &audit) {
