@@ -38,6 +38,8 @@ Other warehouses support live driving and mapping. The bundled RFID stockroom su
 
 If Fleet reports a stopped worker or an out-of-sync clock, restart ARGUS with the same operations data directory. Saved audits remain available. [Fleet failure recovery decision](decisions/0021-separate-audit-evidence-and-bound-fleet-wait.md)
 
+If Fleet reports unreadable audit history, preserve the existing data folder. Audit and review writes are paused while the history is unavailable. Check the reported storage problem and reopen ARGUS against the recovered directory. A location search with no result can be cleared without changing the selected report. [Journal error handling](decisions/0022-protect-unreadable-journals.md)
+
 To retain shelf audits across launches, use the same existing `--operations-data DIRECTORY` each time. Otherwise Location Audits uses temporary session history. The last 20 completed audits for each shelf are retained. [Model and storage decisions](decisions/0016-fleet-shelf-audits.md)
 
 ## Review discrepancies and re-audit a location
