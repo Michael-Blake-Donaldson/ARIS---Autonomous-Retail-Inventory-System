@@ -68,3 +68,13 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Find products and discrepancies | Search shelf IDs, open a completed audit, and compare organized product photos, names, DPCIs and quantities. Expand RFID tags and earlier audits on demand. |
 | Maintainer | Identify a hold and investigate | Surface the hold and its reason in Fleet. Keep the selected robot's original LiDAR rays and motion trail, scan age and localization status in a dedicated maintenance view. |
 | Reviewer | Verify the compact desktop layout | At 1280 × 720 all three views fit their data without horizontal scrolling. Exercise the native workflow without disturbing existing single-robot entry points. |
+
+## Phase 19 mixed backroom locations
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Team member or lead | See progress at a glance | Fleet summarizes completion, pending work and review by aisle. A divided shelf contributes its Wacos to the totals. |
+| Operator | Audit a specific location | The showcase has four aisles, three shelf levels per aisle and a ten-Waco shelf. Whole shelves and individual Wacos have distinct statuses and histories. |
+| Reviewer | Verify local RFID attribution | Attribute a tag only with independent observations that distinguish the target location. Keep unresolved reads available for review and exclude them from observed counts. |
+| Maintainer | Inspect a selected robot | Keep the full LiDAR rays, motion trail, localization and navigation details in Robot Maintenance. |
+| Reviewer | Check restart and compatibility | Reopen whole-shelf and Waco reports in a new process. Preserve previous histories, original single-robot workflows and default seeded sensor behavior. |
