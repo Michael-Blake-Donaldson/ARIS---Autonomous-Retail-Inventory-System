@@ -5,6 +5,7 @@
 #include "argus/simulation/warehouse.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace argus::simulation {
 
@@ -36,11 +37,22 @@ struct RobotTruth {
     robot::Twist applied;
 };
 
+struct RobotStart {
+    world::PointMm position;
+    robot::Radians heading;
+    std::uint32_t seed;
+};
+
+class FleetClock;
+
 class RobotSimulation final : public robot::MotionController {
   public:
     [[nodiscard]] static Result<RobotSimulation, RobotError>
     create(Warehouse warehouse, std::uint64_t tick = 0, MotionConfig motion = {},
            BatteryConfig battery = {}, EncoderEffects encoders = {});
+    [[nodiscard]] static Result<RobotSimulation, RobotError>
+    create_at(Warehouse warehouse, RobotStart start, MotionConfig motion = {},
+              BatteryConfig battery = {}, EncoderEffects encoders = {});
 
     void step(robot::Command command) noexcept override;
     [[nodiscard]] robot::Telemetry telemetry() const noexcept override { return telemetry_; }
@@ -51,7 +63,22 @@ class RobotSimulation final : public robot::MotionController {
   private:
     RobotSimulation(Warehouse warehouse, std::uint64_t tick, world::PointMm spawn,
                     std::int32_t radius, MotionConfig motion, BatteryConfig battery,
-                    EncoderEffects encoders, std::uint32_t seed);
+                    EncoderEffects encoders, std::uint32_t seed,
+                    robot::Radians heading = robot::Radians{0});
+
+    struct Step {
+        robot::Twist command;
+        robot::Twist motion;
+        robot::Pose goal;
+        double clearance_mm;
+        bool invalid;
+        bool latched;
+        bool blocked;
+        bool power_limited;
+        bool world_held;
+    };
+    [[nodiscard]] Step prepare(robot::Command command) const noexcept;
+    void commit(const Step &step, bool sensors_on, bool advance_world) noexcept;
 
     void update_odometry(robot::Twist motion) noexcept;
     void update_battery(std::uint64_t draw, bool stationary, bool power_limited) noexcept;
@@ -64,7 +91,9 @@ class RobotSimulation final : public robot::MotionController {
     Encoders encoders_;
     RobotTruth truth_;
     robot::Telemetry telemetry_;
+    std::optional<world::RectMm> peer_;
     friend class SensorRig;
+    friend class FleetClock;
 };
 
 } // namespace argus::simulation

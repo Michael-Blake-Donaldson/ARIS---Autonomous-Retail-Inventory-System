@@ -34,6 +34,7 @@ class Warehouse {
     [[nodiscard]] static Result<Warehouse, ScenarioError> from_stream(std::istream &input);
 
     [[nodiscard]] world::Snapshot snapshot(std::uint64_t tick) const;
+    [[nodiscard]] bool shares_layout(const Warehouse &other) const noexcept;
 
     // Invalid query radii and disks touching the warehouse boundary are treated as blocked.
     [[nodiscard]] bool collides(world::PointMm center, std::int32_t radius_mm,

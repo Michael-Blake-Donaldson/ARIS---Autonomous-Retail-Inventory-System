@@ -239,7 +239,10 @@ const inventory::Catalog &stockroom_catalog() {
     return catalog;
 }
 
-Result<simulation::Warehouse, simulation::ScenarioError> stockroom_world(RobotId robot) {
+namespace {
+
+Result<simulation::Warehouse, simulation::ScenarioError> make_stockroom(RobotId robot,
+                                                                        bool shared) {
     if (robot.value() < 1 || robot.value() > stockroom_robot_count) {
         return simulation::ScenarioError::invalid_schema;
     }
@@ -272,6 +275,19 @@ Result<simulation::Warehouse, simulation::ScenarioError> stockroom_world(RobotId
                          {"shelf", location.shelf - 4},
                          {"offsetMm", {820, y}}});
     }
+    auto actors = Json::array();
+    if (shared) {
+        racks.push_back(
+            {{"id", "lane-west"}, {"kind", "wall"}, {"boundsMm", {9080, 8850, 100, 750}}});
+        racks.push_back(
+            {{"id", "lane-east"}, {"kind", "wall"}, {"boundsMm", {10360, 8850, 100, 750}}});
+        actors.push_back({{"id", "cross-aisle-worker"},
+                          {"kind", "worker"},
+                          {"startMm", {15250, 2800}},
+                          {"endMm", {15250, 4200}},
+                          {"sizeMm", {340, 340}},
+                          {"legTicks", 64}});
+    }
     const auto world =
         Json{{"schemaVersion", "1.0.0"},
              {"scenarioId", stockroom_scenario.value()},
@@ -280,9 +296,30 @@ Result<simulation::Warehouse, simulation::ScenarioError> stockroom_world(RobotId
              {"robot", {{"spawnMm", {4125 + (robot.value() - 1) * 5600, 3125}}, {"radiusMm", 300}}},
              {"fixtures", std::move(racks)},
              {"zones", std::move(zones)},
-             {"actors", Json::array()},
+             {"actors", std::move(actors)},
              {"items", std::move(items)}};
     return simulation::Warehouse::from_json(world.dump());
+}
+
+} // namespace
+
+Result<simulation::Warehouse, simulation::ScenarioError> stockroom_world(RobotId robot) {
+    return make_stockroom(robot, false);
+}
+
+Result<simulation::Warehouse, simulation::ScenarioError> shared_stockroom_world() {
+    return make_stockroom(RobotId{1}, true);
+}
+
+simulation::RobotStart stockroom_berth(RobotId robot) {
+    const bool first = robot == RobotId{1};
+    return {{first ? 4125 : 9725, 1625}, robot::Radians{0.0}, first ? 5438U : 5439U};
+}
+
+bool return_to_berth(simulation::ObservedRun &run, RobotId robot) {
+    const auto berth = stockroom_berth(robot).position;
+    auto navigator = navigation::Navigator::create(run.mapper.grid(), {.radius = run.radius});
+    return navigator && approach(run, *navigator, {berth.x / mm, berth.y / mm});
 }
 
 Result<LocationSurvey, Error> survey_location(inventory::Repository &repository,

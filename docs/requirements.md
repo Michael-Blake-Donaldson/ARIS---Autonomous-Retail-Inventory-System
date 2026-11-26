@@ -78,3 +78,11 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Reviewer | Verify local RFID attribution | Attribute a tag only with independent observations that distinguish the target location. Keep unresolved reads available for review and exclude them from observed counts. |
 | Maintainer | Inspect a selected robot | Keep the full LiDAR rays, motion trail, localization and navigation details in Robot Maintenance. |
 | Reviewer | Check restart and compatibility | Reopen whole-shelf and Waco reports in a new process. Preserve previous histories, original single-robot workflows and default seeded sensor behavior. |
+
+## Phase 20 shared fleet simulation
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Run both robots in one stockroom | Both robots advance on one fixed simulation clock, see the same moving actors and can detect each other through the simulated sensors. |
+| Operator | Coordinate narrow-aisle work | Assign competing work, see which robot is yielding, and verify that both jobs can proceed in order. Stop commands release or retain access according to whether the robot has cleared the corridor. |
+| Reviewer | Verify collision behavior and provenance | Test concurrent motion, physical separation, moving obstructions, cancellation, and completion of both assigned audits. Keep true positions inside physics, sensor generation and explicit test evaluators. |

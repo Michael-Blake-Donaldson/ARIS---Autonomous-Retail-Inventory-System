@@ -50,7 +50,7 @@ target_include_directories(argus_world PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gene
 target_link_libraries(argus_world PUBLIC argus_core PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_world)
 
-add_library(argus_robot STATIC src/robot/encoders.cpp src/robot/robot.cpp)
+add_library(argus_robot STATIC src/robot/encoders.cpp src/robot/robot.cpp src/robot/fleet.cpp)
 target_link_libraries(argus_robot PUBLIC argus_world)
 argus_project_target(argus_robot)
 
@@ -65,7 +65,8 @@ target_include_directories(argus_mapping SYSTEM PRIVATE "${ARGUS_PICOSHA2_INCLUD
 target_link_libraries(argus_mapping PUBLIC argus_core)
 argus_project_target(argus_mapping)
 
-add_library(argus_navigation STATIC src/navigation/planner.cpp src/navigation/navigator.cpp)
+add_library(argus_navigation STATIC src/navigation/planner.cpp src/navigation/navigator.cpp
+    src/navigation/traffic.cpp)
 target_link_libraries(argus_navigation PUBLIC argus_mapping)
 argus_project_target(argus_navigation)
 
@@ -158,7 +159,8 @@ if(BUILD_TESTING)
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
         tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp
         tests/unit/navigation_test.cpp tests/unit/inventory_test.cpp tests/unit/audit_test.cpp
-        tests/unit/mission_test.cpp tests/unit/operations_test.cpp tests/unit/stockroom_test.cpp)
+        tests/unit/mission_test.cpp tests/unit/operations_test.cpp tests/unit/stockroom_test.cpp
+        tests/unit/fleet_test.cpp)
     target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping
         argus_navigation argus_inventory argus_audit_sim argus_mission argus_operations_model
         unofficial::sqlite3::sqlite3 GTest::gtest_main)
@@ -246,7 +248,7 @@ if(BUILD_TESTING)
                 COMMAND ${CMAKE_COMMAND} "-DARGUS_DESKTOP=$<TARGET_FILE:argus-desktop>"
                     "-DARGUS_FLEET_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fleet_smoke.cmake")
-            set_tests_properties(argus-desktop.fleet PROPERTIES TIMEOUT 85 RUN_SERIAL TRUE)
+            set_tests_properties(argus-desktop.fleet PROPERTIES TIMEOUT 130 RUN_SERIAL TRUE)
         endif()
     endif()
 endif()

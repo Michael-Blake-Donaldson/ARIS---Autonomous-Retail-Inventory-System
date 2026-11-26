@@ -40,7 +40,8 @@ double transmission(const std::vector<world::RectMm> &obstacles, world::PreciseP
 
 sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sensors::Header header,
                             const RfidConfig &config, RfidDwell &dwell, Random &random,
-                            const std::optional<RfidFocus> &focus) {
+                            const std::optional<RfidFocus> &focus,
+                            const std::optional<world::RectMm> &peer) {
     sensors::RfidScan scan{header, {}};
     const auto heading = physical.heading.value();
     const auto cos_heading = std::cos(heading);
@@ -56,7 +57,10 @@ sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical, sens
     }
 
     const auto region = region_near(origin, config.range_m * mm_per_m);
-    const auto obstacles = world.obstacles(region, header.world_tick);
+    auto obstacles = world.obstacles(region, header.world_tick);
+    if (peer) {
+        obstacles.push_back(*peer);
+    }
     scan.reads.reserve(config.max_reads);
     world.visit_tags(region, [&](const TagTruth &tag) {
         const auto x = static_cast<double>(tag.position.x);

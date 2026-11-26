@@ -16,13 +16,20 @@ struct ObservedRun {
     std::optional<sensors::LidarScan> &lidar;
     std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> on_step{};
     Meters radius;
+    std::function<bool(robot::Command)> on_motion{};
 };
 
 struct RunInterrupted {};
 
 [[nodiscard]] inline std::optional<sensors::RfidScan>
 step_observed(ObservedRun &run, robot::Command command, const navigation::Navigator &navigator) {
-    run.robot.step(command);
+    if (run.on_motion) {
+        if (!run.on_motion(command)) {
+            throw RunInterrupted{};
+        }
+    } else {
+        run.robot.step(command);
+    }
     run.sensors.capture(run.robot);
     std::optional<sensors::RfidScan> radio;
     while (auto reading = run.sensors.pop()) {

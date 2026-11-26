@@ -117,11 +117,12 @@ bool SensorRig::capture(const RobotSimulation &robot) {
     const SensorQuery world{robot.warehouse_};
     if (tick % state.config.lidar.period_ticks == 0) {
         publish(detail::scan_lidar(world, robot.truth_.pose, header(sensors::SensorId::lidar),
-                                   state.config.lidar, state.lidar_random));
+                                   state.config.lidar, state.lidar_random, robot.peer_));
     }
     if (tick % state.config.rfid.period_ticks == 0) {
         publish(detail::scan_rfid(world, robot.truth_.pose, header(sensors::SensorId::rfid),
-                                  state.config.rfid, state.dwell, state.rfid_random, state.focus));
+                                  state.config.rfid, state.dwell, state.rfid_random, state.focus,
+                                  robot.peer_));
     }
     return true;
 }

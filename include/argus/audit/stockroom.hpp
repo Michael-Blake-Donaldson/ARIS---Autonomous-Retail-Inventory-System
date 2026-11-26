@@ -1,6 +1,7 @@
 #pragma once
 
 #include "argus/audit/mission.hpp"
+#include "argus/simulation/robot.hpp"
 #include "argus/simulation/sensors.hpp"
 #include "argus/simulation/warehouse.hpp"
 
@@ -43,6 +44,9 @@ attribute_location(inventory::SessionId session, const LocationView &first,
 [[nodiscard]] const inventory::Catalog &stockroom_catalog();
 [[nodiscard]] Result<simulation::Warehouse, simulation::ScenarioError>
 stockroom_world(RobotId robot);
+[[nodiscard]] Result<simulation::Warehouse, simulation::ScenarioError> shared_stockroom_world();
+[[nodiscard]] simulation::RobotStart stockroom_berth(RobotId robot);
+[[nodiscard]] bool return_to_berth(simulation::ObservedRun &run, RobotId robot);
 [[nodiscard]] simulation::SensorConfig stockroom_sensor_config() noexcept;
 [[nodiscard]] Result<LocationSurvey, inventory::Error>
 survey_location(inventory::Repository &repository, const StockLocation &location,

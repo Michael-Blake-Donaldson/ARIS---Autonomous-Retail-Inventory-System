@@ -41,11 +41,15 @@ world::RectMm region_near(world::PrecisePointMm origin, double range) noexcept {
 }
 
 sensors::LidarScan scan_lidar(const SensorQuery &world, robot::Pose physical,
-                              sensors::Header header, const LidarConfig &config, Random &random) {
+                              sensors::Header header, const LidarConfig &config, Random &random,
+                              const std::optional<world::RectMm> &peer) {
     const world::PrecisePointMm origin{physical.x.value() * mm_per_m,
                                        physical.y.value() * mm_per_m};
     const auto range_mm = config.range_m * mm_per_m;
-    const auto obstacles = world.obstacles(region_near(origin, range_mm), header.world_tick);
+    auto obstacles = world.obstacles(region_near(origin, range_mm), header.world_tick);
+    if (peer) {
+        obstacles.push_back(*peer);
+    }
     const auto floor = world.floor();
     const auto spacing = config.field_of_view_rad / config.beams;
     sensors::LidarScan scan{

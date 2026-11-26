@@ -106,12 +106,28 @@ Result<RobotSimulation, RobotError> RobotSimulation::create(Warehouse warehouse,
                            spawn.seed};
 }
 
+Result<RobotSimulation, RobotError>
+RobotSimulation::create_at(Warehouse warehouse, RobotStart start, MotionConfig motion,
+                           BatteryConfig battery, EncoderEffects encoders) {
+    if (!valid(motion, battery) || !valid_encoder_effects(encoders) ||
+        !(std::abs(start.heading.value()) <= std::numbers::pi)) {
+        return RobotError::invalid_configuration;
+    }
+    const auto radius = warehouse.snapshot(0).robot_radius_mm;
+    if (warehouse.collides(start.position, radius, 0)) {
+        return RobotError::invalid_spawn;
+    }
+    return RobotSimulation{
+        std::move(warehouse), 0, start.position, radius, motion, battery, encoders, start.seed,
+        start.heading};
+}
+
 RobotSimulation::RobotSimulation(Warehouse warehouse, std::uint64_t tick, world::PointMm spawn,
                                  std::int32_t radius, MotionConfig motion, BatteryConfig battery,
-                                 EncoderEffects encoders, std::uint32_t seed)
+                                 EncoderEffects encoders, std::uint32_t seed, Radians heading)
     : warehouse_{std::move(warehouse)}, radius_mm_{radius}, motion_{motion}, battery_{battery},
       encoders_{motion.track_m, motion.encoder_step_m, encoders, seed},
-      truth_{{Meters{spawn.x / mm_per_m}, Meters{spawn.y / mm_per_m}, Radians{0.0}}, {}},
+      truth_{{Meters{spawn.x / mm_per_m}, Meters{spawn.y / mm_per_m}, heading}, {}},
       telemetry_{.world_tick = tick,
                  .estimated_pose = truth_.pose,
                  .energy_uj = battery.initial_uj,
@@ -122,27 +138,32 @@ RobotSimulation::RobotSimulation(Warehouse warehouse, std::uint64_t tick, world:
                  .sensors_powered = battery.initial_uj > 0} {}
 
 void RobotSimulation::step(robot::Command command) noexcept {
+    const auto proposed = prepare(command);
+    commit(proposed, command.sensors_on, !proposed.world_held);
+}
+
+RobotSimulation::Step RobotSimulation::prepare(robot::Command command) const noexcept {
     const bool invalid = !std::isfinite(command.target.linear.value()) ||
                          !std::isfinite(command.target.angular.value());
+    auto latched = telemetry_.emergency_latched;
     if (command.emergency_stop) {
-        telemetry_.emergency_latched = true;
+        latched = true;
     } else if (command.reset_stop && !command.deadman && stopped(command.target)) {
-        telemetry_.emergency_latched = false;
+        latched = false;
     }
-    const bool hard_stop = telemetry_.emergency_latched || invalid;
-    telemetry_.invalid_command = invalid;
-    telemetry_.commanded =
+    const bool hard_stop = latched || invalid;
+    const auto commanded =
         !hard_stop && command.deadman ? bounded(command.target, motion_) : Twist{};
 
-    auto applied = hard_stop ? Twist{} : accelerate(truth_.applied, telemetry_.commanded, motion_);
+    auto applied = hard_stop ? Twist{} : accelerate(truth_.applied, commanded, motion_);
     auto next_pose = integrate(truth_.pose, applied);
     const auto start = point(truth_.pose);
     // Constant twist gives acceleration |v * omega| along the arc. Bound the chord error by a*T²/8.
     const auto clearance = std::abs(applied.linear.value() * applied.angular.value()) * step_s *
                            step_s * mm_per_m / 8.0;
-    telemetry_.collision_blocked = warehouse_.sweep_collides(
-        start, point(next_pose), radius_mm_ + clearance, telemetry_.world_tick);
-    if (telemetry_.collision_blocked) {
+    const bool blocked = warehouse_.sweep_collides(start, point(next_pose), radius_mm_ + clearance,
+                                                   telemetry_.world_tick);
+    if (blocked) {
         applied = {};
         next_pose = truth_.pose;
     }
@@ -153,21 +174,29 @@ void RobotSimulation::step(robot::Command command) noexcept {
         applied = {};
         next_pose = truth_.pose;
     }
-    telemetry_.world_held =
-        (telemetry_.collision_blocked || power_limited) &&
+    const bool world_held =
+        (blocked || power_limited) &&
         warehouse_.sweep_collides(start, start, radius_mm_, telemetry_.world_tick);
-    telemetry_.collision_blocked = telemetry_.collision_blocked || telemetry_.world_held;
-    if (!telemetry_.world_held &&
-        telemetry_.world_tick < std::numeric_limits<std::uint64_t>::max()) {
+    return {commanded, applied, next_pose,     clearance, invalid,
+            latched,   blocked, power_limited, world_held};
+}
+
+void RobotSimulation::commit(const Step &step, bool sensors_on, bool advance_world) noexcept {
+    telemetry_.emergency_latched = step.latched;
+    telemetry_.invalid_command = step.invalid;
+    telemetry_.commanded = step.command;
+    telemetry_.world_held = !advance_world;
+    telemetry_.collision_blocked = step.blocked || telemetry_.world_held;
+    if (advance_world && telemetry_.world_tick < std::numeric_limits<std::uint64_t>::max()) {
         ++telemetry_.world_tick;
     }
 
-    truth_ = {next_pose, applied};
-    update_odometry(applied);
+    truth_ = {step.goal, step.motion};
+    update_odometry(step.motion);
     telemetry_.docked =
-        stopped(applied) && warehouse_.charging_contact(point(truth_.pose), radius_mm_);
-    update_battery(energy_draw(applied, command.sensors_on), telemetry_.docked, power_limited);
-    telemetry_.sensors_powered = command.sensors_on && !telemetry_.depleted;
+        stopped(step.motion) && warehouse_.charging_contact(point(truth_.pose), radius_mm_);
+    update_battery(energy_draw(step.motion, sensors_on), telemetry_.docked, step.power_limited);
+    telemetry_.sensors_powered = sensors_on && !telemetry_.depleted;
     if (telemetry_.sample_tick < std::numeric_limits<std::uint64_t>::max()) {
         ++telemetry_.sample_tick;
     }

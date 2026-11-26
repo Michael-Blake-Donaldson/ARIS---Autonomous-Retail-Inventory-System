@@ -74,6 +74,10 @@ struct Warehouse::State {
 
 Warehouse::Warehouse(std::shared_ptr<const State> state) : state_{std::move(state)} {}
 
+bool Warehouse::shares_layout(const Warehouse &other) const noexcept {
+    return state_ == other.state_;
+}
+
 Result<Warehouse, ScenarioError> Warehouse::from_json(std::string_view text) {
     auto parsed = detail::decode(text);
     if (const auto *error = std::get_if<ScenarioError>(&parsed)) {

@@ -27,10 +27,12 @@ using RfidDwell = std::map<std::string, Exposure>;
 
 [[nodiscard]] sensors::LidarScan scan_lidar(const SensorQuery &world, robot::Pose physical,
                                             sensors::Header header, const LidarConfig &config,
-                                            Random &random);
+                                            Random &random,
+                                            const std::optional<world::RectMm> &peer = {});
 [[nodiscard]] sensors::RfidScan scan_rfid(const SensorQuery &world, robot::Pose physical,
                                           sensors::Header header, const RfidConfig &config,
                                           RfidDwell &dwell, Random &random,
-                                          const std::optional<RfidFocus> &focus = {});
+                                          const std::optional<RfidFocus> &focus = {},
+                                          const std::optional<world::RectMm> &peer = {});
 
 } // namespace argus::simulation::detail
