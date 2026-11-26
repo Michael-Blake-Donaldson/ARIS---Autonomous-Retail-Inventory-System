@@ -457,8 +457,9 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                             if (paced) {
                                 std::this_thread::sleep_for(std::chrono::milliseconds{1});
                             }
-                            return !interrupted_.load() && !stop.stop_requested();
-                        }));
+                            return true;
+                        },
+                        [&] { return !interrupted_.load() && !stop.stop_requested(); }));
                 }
                 result = process(job, catalog, store, sequence, observed ? &*observed : nullptr,
                                  fleet ? &*fleet : nullptr);

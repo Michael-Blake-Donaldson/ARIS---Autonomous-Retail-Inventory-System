@@ -112,4 +112,23 @@ TEST(Stockroom, FarAisleCanBeAuditedUsingObservedCrossAisleRoute) {
     EXPECT_EQ(survey->observed.size() + survey->unresolved.size(), 1U);
 }
 
+TEST(Stockroom, ObservedRunChecksHoldBeforeSubmittingMotion) {
+    const auto warehouse = std::get<simulation::Warehouse>(stockroom_world(RobotId{1}));
+    auto robot =
+        std::get<simulation::RobotSimulation>(simulation::RobotSimulation::create(warehouse, 0));
+    auto sensors = std::get<simulation::SensorRig>(
+        simulation::SensorRig::create(warehouse.snapshot(0).seed, stockroom_sensor_config()));
+    auto mapper =
+        std::get<mapping::Mapper>(mapping::Mapper::create({stockroom_scenario, 24000, 10600, 250}));
+    const auto navigator = navigation::Navigator::create(mapper.grid(), {.radius = Meters{0.3}});
+    ASSERT_TRUE(navigator);
+    std::optional<sensors::LidarScan> lidar;
+    simulation::ObservedRun run{robot, sensors,     mapper, lidar,
+                                {},    Meters{0.3}, {},     [] { return false; }};
+    EXPECT_THROW(static_cast<void>(simulation::step_observed(run, {}, *navigator)),
+                 simulation::RunInterrupted);
+    EXPECT_EQ(robot.telemetry().sample_tick, 0U);
+    EXPECT_FALSE(lidar);
+}
+
 } // namespace

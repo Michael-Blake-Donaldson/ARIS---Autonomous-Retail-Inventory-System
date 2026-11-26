@@ -226,7 +226,8 @@ void LiveEngine::update_trace() {
 }
 
 simulation::ObservedRun LiveEngine::borrow_run(
-    std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer) {
+    std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer,
+    std::function<bool()> should_continue) {
     navigator_.reset();
     return {robot_,
             sensors_,
@@ -234,7 +235,8 @@ simulation::ObservedRun LiveEngine::borrow_run(
             lidar_,
             std::move(observer),
             Meters{layout_.radius_mm / 1000.0},
-            [this](robot::Command command) { return advance(command); }};
+            [this](robot::Command command) { return advance(command); },
+            std::move(should_continue)};
 }
 
 void LiveEngine::observe_job(const navigation::Navigator &navigator,

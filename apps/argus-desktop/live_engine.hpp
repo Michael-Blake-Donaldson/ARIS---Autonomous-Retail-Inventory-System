@@ -50,7 +50,8 @@ class LiveEngine {
     [[nodiscard]] LiveFrame frame() const noexcept;
     [[nodiscard]] DiagnosticsFrame diagnostics() const;
     [[nodiscard]] simulation::ObservedRun borrow_run(
-        std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer);
+        std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer,
+        std::function<bool()> should_continue);
     void observe_job(const navigation::Navigator &navigator, const sensors::RfidScan *scan);
     void finish_job(bool emergency);
     void traffic_yield(bool yielding) noexcept { traffic_yield_ = yielding; }

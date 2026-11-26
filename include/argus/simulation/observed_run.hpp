@@ -17,12 +17,16 @@ struct ObservedRun {
     std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> on_step{};
     Meters radius;
     std::function<bool(robot::Command)> on_motion{};
+    std::function<bool()> should_continue{};
 };
 
 struct RunInterrupted {};
 
 [[nodiscard]] inline std::optional<sensors::RfidScan>
 step_observed(ObservedRun &run, robot::Command command, const navigation::Navigator &navigator) {
+    if (run.should_continue && !run.should_continue()) {
+        throw RunInterrupted{};
+    }
     if (run.on_motion) {
         if (!run.on_motion(command)) {
             throw RunInterrupted{};
@@ -42,6 +46,9 @@ step_observed(ObservedRun &run, robot::Command command, const navigation::Naviga
         }
     }
     if (run.on_step && !run.on_step(navigator, radio ? &*radio : nullptr)) {
+        throw RunInterrupted{};
+    }
+    if (run.should_continue && !run.should_continue()) {
         throw RunInterrupted{};
     }
     return radio;
