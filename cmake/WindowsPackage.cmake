@@ -21,6 +21,7 @@ foreach(port IN ITEMS fmt imgui nlohmann-json picosha2 sdl3 spdlog sqlite3)
         DESTINATION "licenses/${port}")
 endforeach()
 install(FILES README.md CHANGELOG.md docs/release/NOTICE.md DESTINATION .)
+install(FILES tools/test-windows-package.ps1 DESTINATION verification)
 install(DIRECTORY assets/inventory assets/warehouse DESTINATION examples
     FILES_MATCHING PATTERN "*.json" PATTERN "*.csv")
 install(DIRECTORY docs/ DESTINATION docs FILES_MATCHING

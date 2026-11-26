@@ -39,6 +39,8 @@ $temp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).ProviderPath.Trim
 $workspace = Join-Path $temp "ARGUS portable test $([Guid]::NewGuid())"
 $data = Join-Path $workspace 'Operator data'
 $desktopData = Join-Path $workspace 'Desktop run'
+$fleetData = Join-Path $workspace 'Fleet reports'
+$trafficData = Join-Path $workspace 'Shared aisle'
 $first = Join-Path $workspace 'Program files'
 $replacement = Join-Path $workspace 'Updated program files'
 $deny = Join-Path $workspace 'Read only'
@@ -109,6 +111,7 @@ try {
         $results.count -eq @($results.tests | Where-Object result -eq 'passed').Count) 'Invalid build evidence.'
     foreach ($notice in @('NOTICE.md', 'licenses/sdl3/copyright', 'licenses/sqlite3/copyright',
             'verification/sbom/SHA256SUMS', 'docs/release/onboarding.md',
+            'verification/test-windows-package.ps1',
             'docs/testing/evidence/phase-14-saved-run.png')) {
         Assert-Package (Test-Path -LiteralPath (Join-Path $first $notice) -PathType Leaf) "Missing $notice."
     }
@@ -181,6 +184,11 @@ try {
 
     $ui = $null
     $uiReopen = $null
+    $fleet = $null
+    $fleetReopen = $null
+    $review = $null
+    $reviewReopen = $null
+    $traffic = $null
     if ($NativeUi) {
         [void][IO.Directory]::CreateDirectory($desktopData)
         $ui = Invoke-Portable 'argus-desktop' @('--ui-smoke', $desktopData) | ConvertFrom-Json
@@ -189,6 +197,17 @@ try {
             $ui.savedRunReopened -and $ui.resized -and $ui.contextRebuilt -and
             $ui.occupancyBuilds -gt 0 -and $ui.occupancyBuilds -lt $ui.occupancyFrames
         Assert-Package $tourPassed 'Installed native workflow tour failed.'
+        [void][IO.Directory]::CreateDirectory($fleetData)
+        [void][IO.Directory]::CreateDirectory($trafficData)
+        $fleet = Invoke-Portable 'argus-desktop' @('--ui-fleet-smoke', $fleetData) | ConvertFrom-Json
+        Assert-Package ($fleet.fleetAudits -and $fleet.mixedLocations -and $fleet.maintenanceBothRobots -and
+            $fleet.auditableLocations -eq 21) 'Installed native fleet workflow failed.'
+        $review = Invoke-Portable 'argus-desktop' @('--ui-fleet-review', $fleetData) | ConvertFrom-Json
+        Assert-Package ($review.reviewed -and $review.reviewFilter -and $review.recheckLinked -and
+            $review.comparisonVisible) 'Installed audit review workflow failed.'
+        $traffic = Invoke-Portable 'argus-desktop' @('--ui-fleet-traffic', $trafficData) | ConvertFrom-Json
+        Assert-Package ($traffic.sharedFleet -and $traffic.yielded -and
+            $traffic.bothAuditsCompleted -and $traffic.secondLocation -ceq 'A20J07') 'Installed shared-aisle workflow failed.'
     }
 
     Expand-Archive -LiteralPath $archive -DestinationPath $replacement
@@ -202,6 +221,12 @@ try {
     if ($NativeUi) {
         $uiReopen = Invoke-Portable 'argus-desktop' @('--ui-reopen', $desktopData) | ConvertFrom-Json
         Assert-Package $uiReopen.savedRunReopenedAfterRestart 'Portable replacement did not reopen the saved desktop run.'
+        $fleetReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-reopen', $fleetData) | ConvertFrom-Json
+        Assert-Package ($fleetReopen.reopenedAfterRestart -and $fleetReopen.dashboard1280x720 -and
+            $fleetReopen.returnedToBerth) 'Portable replacement could not reopen fleet history and release the aisle.'
+        $reviewReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-review-reopen', $fleetData) | ConvertFrom-Json
+        Assert-Package ($reviewReopen.reopened -and $reviewReopen.reviewed -and $reviewReopen.recheckLinked -and
+            $reviewReopen.comparisonVisible) 'Portable replacement could not reopen the reviewed report and re-audit.'
     }
     Remove-TestFolder $replacement
     Assert-Package (!(Test-Path -LiteralPath $replacement) -and (Test-Path -LiteralPath $catalog) -and
@@ -210,20 +235,34 @@ try {
         $desktopDataPreserved = (Test-Path -LiteralPath (Join-Path $desktopData 'catalog.db') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $desktopData 'missions.db') -PathType Leaf)
         Assert-Package $desktopDataPreserved 'Portable uninstall removed the saved desktop databases.'
+        Assert-Package ((Test-Path -LiteralPath (Join-Path $fleetData 'missions.db') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $trafficData 'missions.db') -PathType Leaf)) 'Portable uninstall removed the fleet journals.'
     }
     $checks = @('digest', 'extract', 'version', 'custom-warehouse', 'robot-deployment', 'exploration',
         'map-pin-and-corruption', 'product-lookup', 'item-search', 'audit-and-csv-review', 'mission',
         'denied-write', 'replacement-and-reopen', 'portable-uninstall')
     if ($NativeUi) {
         $checks += @('native-continuous-workflow', 'native-reopen-after-replacement', 'native-data-after-uninstall')
+        $checks += @('native-fleet-audits', 'native-audit-review', 'native-shared-aisle',
+            'native-fleet-recovery-after-replacement', 'native-review-after-replacement')
+    }
+    $graphics = if ($NativeUi) {
+        @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
+            Select-Object Name, DriverVersion)
     }
     [ordered]@{
         package = $filename
         sha256 = $ExpectedSha256.ToLowerInvariant()
         sourceCommit = $proof.sourceCommit
         windowsVersion = [Environment]::OSVersion.Version.ToString()
+        graphicsDrivers = @($graphics | Where-Object { $_ })
         nativeUi = $ui
         nativeReopen = $uiReopen
+        nativeFleet = $fleet
+        nativeFleetReopen = $fleetReopen
+        nativeReview = $review
+        nativeReviewReopen = $reviewReopen
+        nativeTraffic = $traffic
         checks = $checks
     } | ConvertTo-Json -Depth 5
 } finally {
