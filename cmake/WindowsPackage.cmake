@@ -25,7 +25,9 @@ install(DIRECTORY assets/inventory assets/warehouse DESTINATION examples
     FILES_MATCHING PATTERN "*.json" PATTERN "*.csv")
 install(DIRECTORY docs/ DESTINATION docs FILES_MATCHING
     PATTERN "*.md" PATTERN "evidence" EXCLUDE)
-install(FILES docs/testing/evidence/phase-10-operations-center.png DESTINATION docs/testing/evidence)
+install(FILES docs/testing/evidence/phase-10-operations-center.png
+    docs/testing/evidence/phase-13-lidar-hold.png docs/testing/evidence/phase-14-saved-run.png
+    DESTINATION docs/testing/evidence)
 install(DIRECTORY "${CMAKE_BINARY_DIR}/release-evidence/" DESTINATION verification)
 
 set(CPACK_GENERATOR ZIP)

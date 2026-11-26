@@ -38,6 +38,7 @@ try {
 $temp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).ProviderPath.TrimEnd('\')
 $workspace = Join-Path $temp "ARGUS portable test $([Guid]::NewGuid())"
 $data = Join-Path $workspace 'Operator data'
+$desktopData = Join-Path $workspace 'Desktop run'
 $first = Join-Path $workspace 'Program files'
 $replacement = Join-Path $workspace 'Updated program files'
 $deny = Join-Path $workspace 'Read only'
@@ -99,7 +100,8 @@ try {
         $proof.sourceCommit -cmatch '^[0-9a-f]{40}$' -and $results.count -ge 100 -and
         $results.count -eq @($results.tests | Where-Object result -eq 'passed').Count) 'Invalid build evidence.'
     foreach ($notice in @('NOTICE.md', 'licenses/sdl3/copyright', 'licenses/sqlite3/copyright',
-            'verification/sbom/SHA256SUMS', 'docs/release/onboarding.md')) {
+            'verification/sbom/SHA256SUMS', 'docs/release/onboarding.md',
+            'docs/testing/evidence/phase-14-saved-run.png')) {
         Assert-Package (Test-Path -LiteralPath (Join-Path $first $notice) -PathType Leaf) "Missing $notice."
     }
     foreach ($name in @('argus-headless', 'argus-desktop')) {
@@ -170,9 +172,15 @@ try {
     }
 
     $ui = $null
+    $uiReopen = $null
     if ($NativeUi) {
-        $ui = Invoke-Portable 'argus-desktop' @('--ui-smoke') | ConvertFrom-Json
-        Assert-Package ($ui.workflowTour -and $ui.contextRebuilt) 'Installed native workflow tour failed.'
+        [void][IO.Directory]::CreateDirectory($desktopData)
+        $ui = Invoke-Portable 'argus-desktop' @('--ui-smoke', $desktopData) | ConvertFrom-Json
+        $tourPassed = $ui.workflowTour -and $ui.movingObserved -and $ui.truthIsolated -and
+            $ui.lidarDropoutHeld -and $ui.lidarRecovered -and $ui.continuousRun -and
+            $ui.savedRunReopened -and $ui.resized -and $ui.contextRebuilt -and
+            $ui.occupancyBuilds -gt 0 -and $ui.occupancyBuilds -lt $ui.occupancyFrames
+        Assert-Package $tourPassed 'Installed native workflow tour failed.'
     }
 
     Expand-Archive -LiteralPath $archive -DestinationPath $replacement
@@ -183,18 +191,32 @@ try {
     Assert-Package ($restored.state -ceq 'completed' -and $restored.coveredViews -eq $mission.coveredViews -and
         $reopened.free -eq $mapped.free -and (Test-Path -LiteralPath $json) -and
         (Test-Path -LiteralPath $csv)) 'Portable replacement did not preserve the run and reports.'
+    if ($NativeUi) {
+        $uiReopen = Invoke-Portable 'argus-desktop' @('--ui-reopen', $desktopData) | ConvertFrom-Json
+        Assert-Package $uiReopen.savedRunReopenedAfterRestart 'Portable replacement did not reopen the saved desktop run.'
+    }
     Remove-TestFolder $replacement
     Assert-Package (!(Test-Path -LiteralPath $replacement) -and (Test-Path -LiteralPath $catalog) -and
         (Test-Path -LiteralPath $missions) -and (Test-Path -LiteralPath $map)) 'Portable uninstall changed operator data.'
+    if ($NativeUi) {
+        $desktopDataPreserved = (Test-Path -LiteralPath (Join-Path $desktopData 'catalog.db') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $desktopData 'missions.db') -PathType Leaf)
+        Assert-Package $desktopDataPreserved 'Portable uninstall removed the saved desktop databases.'
+    }
+    $checks = @('digest', 'extract', 'version', 'custom-warehouse', 'robot-deployment', 'exploration',
+        'map-pin-and-corruption', 'product-lookup', 'item-search', 'audit-and-csv-review', 'mission',
+        'denied-write', 'replacement-and-reopen', 'portable-uninstall')
+    if ($NativeUi) {
+        $checks += @('native-continuous-workflow', 'native-reopen-after-replacement', 'native-data-after-uninstall')
+    }
     [ordered]@{
         package = $filename
         sha256 = $ExpectedSha256.ToLowerInvariant()
         sourceCommit = $proof.sourceCommit
         windowsVersion = [Environment]::OSVersion.Version.ToString()
         nativeUi = $ui
-        checks = @('digest', 'extract', 'version', 'custom-warehouse', 'robot-deployment', 'exploration',
-            'map-pin-and-corruption', 'product-lookup', 'item-search', 'audit-and-csv-review', 'mission',
-            'denied-write', 'replacement-and-reopen', 'portable-uninstall')
+        nativeReopen = $uiReopen
+        checks = $checks
     } | ConvertTo-Json -Depth 5
 } finally {
     Remove-TestFolder $workspace
