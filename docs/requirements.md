@@ -95,3 +95,12 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Recheck a location | From a completed location, queue a fresh audit with the selected available robot. Completing it creates a separate report linked to its source and starts a fresh review when warranted. |
 | Reviewer | Compare the evidence | Compare expected and observed counts by DPCI against the source audit. Keep unresolved and unidentified tags inspectable on each report. Preserve robot, run and session provenance and separate historical evidence from current review status. |
 | Reviewer | Verify durability | Migrate version 4 journals without rewriting reports. Reopen review timestamps and re-audit links after restart. Reject invalid or stale actions and preserve both existing history limits and single-robot behavior. |
+
+## Phase 22 final simulation release
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Team member or lead | Run the stockroom walkthrough | Launch the portable desktop with a separate operations directory and follow current Fleet, Location Audits, review and Maintenance instructions. Verify the workflow at 1280 × 720 and capture updated preview media. |
+| Maintainer | Recover a held robot | Interrupt active work outside the berth, verify the visible hold and retained claim, and use Return to berth to release it. Verify the shared-aisle scenario that previously timed out. |
+| Release reviewer | Verify the staged archive | Verify the digest and extract with a system-only PATH. Exercise fleet recovery, review and traffic in the archive and verify the reports and timestamps after replacing the program. |
+| Release reviewer | Verify a fresh Windows installation | Run native acceptance on a clean Windows 11 x64 installation with an interactive OpenGL driver and record the host and driver. Record the gate as open if a separate installation is unavailable. |

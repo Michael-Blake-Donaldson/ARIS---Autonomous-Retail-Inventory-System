@@ -192,7 +192,7 @@ void FleetPanel::robots(Panel &panel) {
         const bool working = assigned && fleet.busy(i);
         if (working) {
             ImGui::TextDisabled("Auditing %s", Fleet::locations()[*assigned].id.value.c_str());
-        } else {
+        } else if (!fleet.busy(i)) {
             ImGui::TextDisabled("Idle");
         }
         const auto activity = fleet.status(i);
@@ -243,7 +243,11 @@ void FleetPanel::robots(Panel &panel) {
     }
     if (fleet.aisle_retained(selected_)) {
         ImGui::BeginDisabled(fleet.busy(selected_));
-        if (ImGui::Button("Return to berth", {-1, 0})) {
+        const bool returning = ImGui::Button("Return to berth", {-1, 0});
+        if (!fleet.busy(selected_)) {
+            layout_.return_to_berth = item_center();
+        }
+        if (returning) {
             static_cast<void>(fleet.clear_aisle(selected_));
         }
         ImGui::EndDisabled();
@@ -437,6 +441,12 @@ void FleetPanel::location_row(std::size_t index) {
 
 void FleetPanel::locations() {
     const auto &fleet = *get();
+    ImGui::TextDisabled("Robot for audit");
+    ImGui::SetNextItemWidth(-1.0F);
+    auto robot = static_cast<int>(selected_);
+    if (ImGui::Combo("##location-robot", &robot, "Robot 1\0Robot 2\0")) {
+        select(static_cast<std::size_t>(robot));
+    }
     ImGui::SetNextItemWidth(-1.0F);
     ImGui::InputTextWithHint("##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(),
                              shelf_filter_.size());

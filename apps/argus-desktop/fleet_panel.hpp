@@ -15,6 +15,7 @@ struct DashboardLayout {
     std::optional<DashboardPoint> map_zoom;
     std::optional<DashboardPoint> open_audit;
     std::optional<DashboardPoint> maintenance;
+    std::optional<DashboardPoint> return_to_berth;
     std::optional<DashboardPoint> mark_reviewed;
     std::optional<DashboardPoint> recheck;
     std::optional<DashboardPoint> compare;

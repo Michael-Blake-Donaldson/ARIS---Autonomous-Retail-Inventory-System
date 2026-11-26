@@ -17,7 +17,8 @@ foreach(mode IN ITEMS smoke reopen)
        (NOT output MATCHES "\"dashboard1280x720\":true" OR
         NOT output MATCHES "\"shelfAuditClicks\":2" OR
         NOT output MATCHES "\"selectionPreserved\":true" OR
-        NOT output MATCHES "\"holdVisible\":true"))
+        NOT output MATCHES "\"holdVisible\":true" OR
+        NOT output MATCHES "\"returnedToBerth\":true"))
         message(FATAL_ERROR "Dashboard review evidence is incomplete\n${output}")
     endif()
     message(STATUS "${output}")
@@ -45,7 +46,8 @@ file(MAKE_DIRECTORY "${data}")
 execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-traffic "${data}"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 45)
 if(NOT result STREQUAL "0" OR NOT output MATCHES "\"sharedFleet\":true" OR
-    NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true")
+    NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true" OR
+    NOT output MATCHES "\"secondLocation\":\"A20J07\"")
     message(FATAL_ERROR "Shared aisle failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
 endif()
 message(STATUS "${output}")

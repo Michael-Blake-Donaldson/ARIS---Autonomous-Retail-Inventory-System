@@ -36,17 +36,19 @@ enum class Mode {
     fleet_traffic,
     fleet_review,
     fleet_review_reopen,
-    dashboard_record
+    dashboard_record,
+    review_record
 };
 bool review_probe(Mode mode) noexcept {
-    return mode == Mode::fleet_review || mode == Mode::fleet_review_reopen;
+    return mode == Mode::fleet_review || mode == Mode::fleet_review_reopen ||
+           mode == Mode::review_record;
 }
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
            mode == Mode::dashboard_record || review_probe(mode);
 }
 bool captures_video(Mode mode) noexcept {
-    return mode == Mode::record || mode == Mode::dashboard_record;
+    return mode == Mode::record || mode == Mode::dashboard_record || mode == Mode::review_record;
 }
 struct ProbePointer {
     DashboardPoint point;
@@ -621,7 +623,9 @@ class FleetProbe {
         inspect,
         queue_hold,
         watch_motion,
-        wait_for_hold
+        wait_for_hold,
+        return_to_berth,
+        verify_clearance
     };
 
     bool click(std::optional<DashboardPoint> desired) {
@@ -693,19 +697,29 @@ class FleetProbe {
             break;
         case Review::watch_motion: {
             const auto frame = fleet.frame(1);
-            if (!recording_ ||
-                (frame.trace.size() > 5 && frame.map.scan == ScanState::fresh && frame.lidar)) {
+            const auto berth = audit::stockroom_berth(RobotId{2}).position;
+            const auto &pose = frame.telemetry.estimated_pose;
+            const auto travelled =
+                std::hypot(pose.x.value() - berth.x / 1000.0, pose.y.value() - berth.y / 1000.0);
+            if (travelled > 0.9 && frame.map.scan == ScanState::fresh && frame.lidar) {
+                fleet.hold();
                 ui.panel = Panel::fleet;
                 review_ = Review::wait_for_hold;
             }
             break;
         }
         case Review::wait_for_hold:
-            if (fleet.status(1) == "Auditing shelf" && fleet.frame(1).navigation) {
-                fleet.hold();
+            if (fleet.aisle_retained(1) && layout.hold_visible) {
+                review_ = Review::return_to_berth;
             }
-            if ((fleet.status(1) == "Run held by operator" || fleet.aisle_retained(1)) &&
-                layout.hold_visible) {
+            break;
+        case Review::return_to_berth:
+            if (click(layout.return_to_berth)) {
+                review_ = Review::verify_clearance;
+            }
+            break;
+        case Review::verify_clearance:
+            if (fleet.status(1) == "Aisle released" && !fleet.aisle_retained(1)) {
                 return summarize(fleet);
             }
             break;
@@ -762,7 +776,7 @@ class FleetProbe {
                << ",\"wacoUnresolved\":" << tech.report.unresolved.size() << ','
                << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
                              "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
-                             "\"holdVisible\":true}"
+                             "\"holdVisible\":true,\"returnedToBerth\":true}"
                            : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
                << '\n';
         return true;
@@ -849,14 +863,16 @@ class AisleProbe {
             std::cerr << "Shared aisle did not show both yielding and resumed motion\n";
             return false;
         }
-        std::cout << "{\"sharedFleet\":true,\"yielded\":true,\"bothAuditsCompleted\":true}\n";
+        std::cout << "{\"sharedFleet\":true,\"yielded\":true,\"bothAuditsCompleted\":true,"
+                     "\"secondLocation\":\""
+                  << Fleet::locations()[locations_[1]].id.value << "\"}\n";
         return true;
     }
 
   private:
     const Uint64 started_{SDL_GetTicks()};
     const std::array<std::size_t, 2> locations_{Fleet::find("A20J05").value(),
-                                                Fleet::find("A20J06-W01").value()};
+                                                Fleet::find("A20J07").value()};
     bool queued_{};
     bool yielded_{};
     bool proceeded_{};
@@ -864,7 +880,8 @@ class AisleProbe {
 
 class AuditReviewProbe {
   public:
-    explicit AuditReviewProbe(bool reopen) : reopen_{reopen} {}
+    explicit AuditReviewProbe(Mode mode)
+        : reopen_{mode == Mode::fleet_review_reopen}, recording_{mode == Mode::review_record} {}
 
     std::optional<bool> advance(Panels &ui) {
         input_.reset();
@@ -882,6 +899,9 @@ class AuditReviewProbe {
         if (history.empty() || layout.horizontal_scroll || fleet->review_failed(location_)) {
             return false;
         }
+        if (recording_ && !pressed_ && SDL_GetTicks() < next_action_) {
+            return std::nullopt;
+        }
         switch (stage_) {
         case Stage::open:
             ui.fleet.select(0);
@@ -895,6 +915,7 @@ class AuditReviewProbe {
                 review_count_ = fleet->aisle_summary(0).review;
             }
             stage_ = Stage::filter;
+            next_action_ = SDL_GetTicks() + 1050;
             break;
         case Stage::filter:
             if (click(layout.review_filter)) {
@@ -936,9 +957,10 @@ class AuditReviewProbe {
         case Stage::comparison:
             if (layout.compared && layout.products >= 2 && ImGui::GetIO().DisplaySize.x == 1280 &&
                 ImGui::GetIO().DisplaySize.y == 720) {
-                std::cout << "{\"reviewed\":true,\"recheckLinked\":true,\"reviewFilter\":true,"
-                             "\"comparisonVisible\":true,\"reopened\":"
-                          << (reopen_ ? "true" : "false") << "}\n";
+                auto &output = recording_ ? std::cerr : std::cout;
+                output << "{\"reviewed\":true,\"recheckLinked\":true,\"reviewFilter\":true,"
+                          "\"comparisonVisible\":true,\"reopened\":"
+                       << (reopen_ ? "true" : "false") << "}\n";
                 return true;
             }
             break;
@@ -955,6 +977,7 @@ class AuditReviewProbe {
         if (pressed_) {
             input_ = ProbePointer{*pressed_, false};
             pressed_.reset();
+            next_action_ = SDL_GetTicks() + 1250;
             return true;
         }
         if (point) {
@@ -965,7 +988,9 @@ class AuditReviewProbe {
     }
 
     const bool reopen_;
+    const bool recording_;
     const Uint64 started_{SDL_GetTicks()};
+    Uint64 next_action_{};
     const std::size_t location_{Fleet::initial_location(0)};
     Stage stage_{Stage::open};
     std::size_t review_count_{};
@@ -1007,7 +1032,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     if (mode == Mode::fleet_traffic) {
         aisle_probe.emplace();
     } else if (review_probe(mode)) {
-        review.emplace(mode == Mode::fleet_review_reopen);
+        review.emplace(mode);
     } else if (verification) {
         probe.emplace(mode);
     }
@@ -1218,6 +1243,9 @@ app::Status verify_review(const app::Options &options) {
 app::Status reopen_review(const app::Options &options) {
     return desktop(options, Mode::fleet_review_reopen);
 }
+app::Status record_review(const app::Options &options) {
+    return desktop(options, Mode::review_record);
+}
 app::Status record_dashboard(const app::Options &options) {
     return desktop(options, Mode::dashboard_record);
 }
@@ -1226,11 +1254,11 @@ app::Status record_dashboard(const app::Options &options) {
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 &&
-        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
-         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
-         option == "--ui-fleet-traffic" || option == "--ui-fleet-review" ||
-         option == "--ui-fleet-review-reopen" || option == "--ui-dashboard-record")) {
+    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
+                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
+                      option == "--ui-fleet-reopen" || option == "--ui-fleet-traffic" ||
+                      option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
+                      option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             return 2;
@@ -1248,6 +1276,7 @@ int main(int argc, char **argv) {
                            : option == "--ui-fleet-review"        ? verify_review
                            : option == "--ui-fleet-review-reopen" ? reopen_review
                            : option == "--ui-dashboard-record"    ? record_dashboard
+                           : option == "--ui-fleet-review-record" ? record_review
                                                                   : interactive;
         return app::run_application(1, argv, "argus-desktop", entry);
     }
