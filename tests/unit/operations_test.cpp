@@ -1,3 +1,4 @@
+#include "fleet_report.hpp"
 #include "occupancy_mesh.hpp"
 #include "operations_model.hpp"
 
@@ -9,6 +10,41 @@
 namespace {
 
 using namespace argus::desktop;
+
+TEST(ShelfReport, KeepsZeroReadsAndOrdersProductsWithValidatedTags) {
+    using namespace argus;
+    const inventory::Product shoe{{"990-02-0001"}, "Canvas shoe", inventory::Category::shoes};
+    const inventory::Product tee{{"990-01-0001"}, "Cotton tee", inventory::Category::clothing};
+    const inventory::Epc epc{"A00000000000000000000001"};
+    const inventory::AisleId aisle{"SOFTLINES"};
+    const inventory::Assignment assigned{{epc, tee.id, {"SOFT-A1"}}, aisle};
+    audit::Report report{inventory::SessionId{1},
+                         audit::AuditAisle{aisle},
+                         {},
+                         {{epc, assigned, audit::Finding::supported, {aisle, 1.0, true}, {}}},
+                         {{shoe.id, 2, 0, 0}, {tee.id, 1, 1, 1}}};
+    const std::array products{shoe, tee};
+    const auto shelf = make_shelf_report(report, products);
+    ASSERT_TRUE(shelf);
+    const auto restored = decode_shelf_report(encode_shelf_report(*shelf));
+    ASSERT_TRUE(restored);
+    ASSERT_EQ(restored->products.size(), 2U);
+    EXPECT_EQ(restored->products[0].product, tee);
+    EXPECT_EQ(restored->products[0].tags.at(0).epc, epc);
+    EXPECT_TRUE(restored->products[0].tags.at(0).observed_here);
+    EXPECT_EQ(restored->products[1].product, shoe);
+    EXPECT_EQ(restored->products[1].observed, 0U);
+    EXPECT_TRUE(restored->needs_review());
+}
+
+TEST(ShelfReport, RejectsMalformedOrInconsistentPersistedProductData) {
+    EXPECT_FALSE(decode_shelf_report(R"({"version":99,"products":[],"unidentified":[]})"));
+    EXPECT_FALSE(decode_shelf_report(
+        R"({"version":1,"products":[["990-01-0001","Tee",0,1,1,[]]],"unidentified":[]})"));
+    EXPECT_FALSE(decode_shelf_report(
+        R"({"version":1,"products":[["990-01-0001","Tee",0,1,1,[["A00000000000000000000001",true]]]],"unidentified":["A00000000000000000000001"]})"));
+    EXPECT_FALSE(decode_shelf_report(std::string(131073, 'a')));
+}
 
 TEST(OperationsModel, FocusLossClearsMotionAndHeldRepeatCannotRearm) {
     DriveInput input;

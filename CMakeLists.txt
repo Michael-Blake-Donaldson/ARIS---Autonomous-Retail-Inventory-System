@@ -90,9 +90,10 @@ target_link_libraries(argus_mission PUBLIC argus_inventory PRIVATE unofficial::s
 argus_project_target(argus_mission)
 
 add_library(argus_operations_model STATIC apps/argus-desktop/operations_model.cpp
-    apps/argus-desktop/occupancy_mesh.cpp)
+    apps/argus-desktop/occupancy_mesh.cpp apps/argus-desktop/fleet_report.cpp)
 target_include_directories(argus_operations_model PUBLIC apps/argus-desktop)
-target_link_libraries(argus_operations_model PUBLIC argus_navigation)
+target_link_libraries(argus_operations_model PUBLIC argus_navigation
+    PRIVATE argus_inventory nlohmann_json::nlohmann_json)
 argus_project_target(argus_operations_model)
 
 add_library(argus_mission_sim STATIC src/mission/simulation.cpp)
