@@ -145,9 +145,9 @@ void FleetPanel::robots(Panel &panel) {
         const auto battery = power.capacity_uj > 0 ? 100.0 * static_cast<double>(power.energy_uj) /
                                                          static_cast<double>(power.capacity_uj)
                                                    : 0.0;
-        std::array<char, 50> caption{};
-        std::snprintf(caption.data(), caption.size(), "Robot %zu    %.0f%% battery", i + 1,
-                      battery);
+        std::array<char, 72> caption{};
+        std::snprintf(caption.data(), caption.size(),
+                      "Robot %zu    %.0f%% battery###fleet-robot-%zu", i + 1, battery, i);
         if (ImGui::Selectable(caption.data(), selected_ == i, 0, {0, 27.0F})) {
             select(i);
         }
