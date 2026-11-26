@@ -331,6 +331,79 @@ TEST(MissionStore, MigratesExistingShelfHistoryAndKeepsAdjacentWacosSeparate) {
     EXPECT_EQ(std::get<Error>(store.shelf_history({"A20J06-W00"})), Error::invalid);
 }
 
+TEST(MissionStore, MigratesVersionFourAndReopensReviewAndRecheckProvenance) {
+    Database db;
+    const ShelfAudit source{{"A20J06-W01"}, RobotId{1}, RunId{51}, 1, 10, "source evidence"};
+    {
+        auto store = std::get<Store>(Store::open(db.file()));
+        ASSERT_EQ(store.save_shelf_audit(source).index(), 0U);
+    }
+    sqlite3 *raw{};
+    ASSERT_EQ(sqlite3_open(db.file().string().c_str(), &raw), SQLITE_OK);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> edit{raw, &sqlite3_close};
+    ASSERT_EQ(sqlite3_exec(edit.get(),
+                           "ALTER TABLE shelf_audit DROP COLUMN source_session;"
+                           "ALTER TABLE shelf_audit DROP COLUMN source_run;"
+                           "ALTER TABLE shelf_audit DROP COLUMN source_robot;"
+                           "ALTER TABLE shelf_audit DROP COLUMN reviewed_ms;"
+                           "PRAGMA user_version=4",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    auto store = std::get<Store>(Store::open(db.file()));
+    const auto restored = std::get<std::vector<ShelfAudit>>(store.shelf_history(source.location));
+    ASSERT_EQ(restored.size(), 1U);
+    EXPECT_EQ(restored.front().report, source.report);
+    EXPECT_FALSE(restored.front().reviewed_ms);
+    EXPECT_FALSE(restored.front().recheck_of);
+    EXPECT_EQ(std::get<Error>(store.review_shelf_audit(source.location, source.key(), 9)),
+              Error::invalid);
+    EXPECT_EQ(std::get<std::uint64_t>(store.review_shelf_audit(source.location, source.key(), 15)),
+              15U);
+    EXPECT_EQ(std::get<std::uint64_t>(store.review_shelf_audit(source.location, source.key(), 16)),
+              15U);
+    ShelfAudit recheck{source.location, RobotId{2}, RunId{52}, 1, 20, "new evidence", source.key()};
+    ASSERT_EQ(store.save_shelf_audit(recheck).index(), 0U);
+    ASSERT_EQ(store.save_shelf_audit(recheck).index(), 0U);
+    EXPECT_EQ(std::get<Error>(store.review_shelf_audit(source.location, source.key(), 25)),
+              Error::conflict);
+    auto reopened = std::get<Store>(Store::open(db.file()));
+    const auto reports = std::get<std::vector<ShelfAudit>>(reopened.shelf_history(source.location));
+    ASSERT_EQ(reports.size(), 2U);
+    EXPECT_EQ(reports[0].report, recheck.report);
+    EXPECT_EQ(reports[0].recheck_of, source.key());
+    EXPECT_FALSE(reports[0].reviewed_ms);
+    EXPECT_EQ(reports[1].report, source.report);
+    EXPECT_EQ(reports[1].reviewed_ms, 15U);
+}
+
+TEST(MissionStore, RejectsForeignSourcesAndPreservesLinksAfterSourceTrimming) {
+    Database db;
+    auto store = std::get<Store>(Store::open(db.file()));
+    const ShelfAudit source{{"A10J05"}, RobotId{1}, RunId{10}, 1, 10, "source"};
+    ASSERT_EQ(store.save_shelf_audit(source).index(), 0U);
+    ShelfAudit recheck{{"A20J05"}, RobotId{2}, RunId{20}, 2, 20, "recheck", source.key()};
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(recheck)), Error::conflict);
+    EXPECT_TRUE(std::get<std::vector<ShelfAudit>>(store.shelf_history(recheck.location)).empty());
+    recheck.location = source.location;
+    ASSERT_EQ(store.save_shelf_audit(recheck).index(), 0U);
+    auto conflicting = recheck;
+    conflicting.recheck_of.reset();
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflicting)), Error::conflict);
+    conflicting.recheck_of = conflicting.key();
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflicting)), Error::invalid);
+    for (std::size_t session = 3; session <= shelf_history_limit + 1; ++session) {
+        ASSERT_EQ(
+            store.save_shelf_audit({source.location, RobotId{2}, RunId{20}, session, 30, "later"})
+                .index(),
+            0U);
+    }
+    ASSERT_EQ(store.save_shelf_audit(recheck).index(), 0U);
+    const auto history = std::get<std::vector<ShelfAudit>>(store.shelf_history(source.location));
+    ASSERT_EQ(history.size(), shelf_history_limit);
+    EXPECT_EQ(history.back().key(), recheck.key());
+    EXPECT_EQ(history.back().recheck_of, source.key());
+}
+
 TEST(MissionStore, ReservePreemptsWorkBeforeTheBatterySignal) {
     Database db;
     auto store = std::get<Store>(Store::open(db.file()));

@@ -88,6 +88,19 @@ constexpr auto location_schema = R"sql(
     PRAGMA user_version=4;
 )sql";
 
+constexpr auto review_schema = R"sql(
+    ALTER TABLE shelf_audit ADD COLUMN reviewed_ms INTEGER
+        CHECK(reviewed_ms IS NULL OR reviewed_ms >= completed_ms);
+    ALTER TABLE shelf_audit ADD COLUMN source_robot INTEGER CHECK(source_robot > 0);
+    ALTER TABLE shelf_audit ADD COLUMN source_run INTEGER CHECK(source_run > 0);
+    ALTER TABLE shelf_audit ADD COLUMN source_session INTEGER CHECK(
+        (source_robot IS NULL AND source_run IS NULL AND source_session IS NULL) OR
+        (source_robot IS NOT NULL AND source_run IS NOT NULL AND
+         source_session IS NOT NULL AND source_session > 0 AND
+         (source_robot <> robot OR source_run <> run OR source_session <> session)));
+    PRAGMA user_version=5;
+)sql";
+
 [[noreturn]] void fail(int code) {
     throw(code & 0xff) == SQLITE_BUSY || (code & 0xff) == SQLITE_LOCKED ? Error::busy
                                                                         : Error::storage;
@@ -140,6 +153,10 @@ class Statement {
     void put(int index, std::string_view value) {
         require(sqlite3_bind_text(stmt_.get(), index, value.empty() ? "" : value.data(),
                                   static_cast<int>(value.size()), SQLITE_TRANSIENT));
+    }
+    void put_null(int index) { require(sqlite3_bind_null(stmt_.get(), index)); }
+    [[nodiscard]] bool is_null(int column) const {
+        return sqlite3_column_type(stmt_.get(), column) == SQLITE_NULL;
     }
     void put_blob(int index, std::string_view bytes) {
         require(sqlite3_bind_blob(stmt_.get(), index, bytes.data(), static_cast<int>(bytes.size()),
@@ -206,6 +223,29 @@ std::uint64_t scalar(sqlite3 *db, const char *sql) {
         throw Error::storage;
     }
     return get.integer(0);
+}
+
+bool valid_key(ShelfAuditKey key) noexcept {
+    return key.robot.value() > 0 && key.robot.value() <= max_id && key.run.value() > 0 &&
+           key.run.value() <= max_id && key.session > 0 && key.session <= max_id;
+}
+
+void bind_key(Statement &statement, int index, ShelfAuditKey key) {
+    statement.put(index, key.robot.value());
+    statement.put(index + 1, key.run.value());
+    statement.put(index + 2, key.session);
+}
+
+std::optional<ShelfAuditKey> read_source(const Statement &statement, int index) {
+    if (statement.is_null(index) && statement.is_null(index + 1) && statement.is_null(index + 2)) {
+        return std::nullopt;
+    }
+    const ShelfAuditKey key{RobotId{statement.integer(index)}, RunId{statement.integer(index + 1)},
+                            statement.integer(index + 2)};
+    if (!valid_key(key)) {
+        throw Error::storage;
+    }
+    return key;
 }
 
 template <typename T, typename F> Result<T, Error> checked(F &&operation) {
@@ -355,7 +395,7 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         const auto owner = scalar(db.get(), "PRAGMA application_id");
         const bool fresh = version == 0 && owner == 0 &&
                            scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0;
-        if ((!fresh && ((version < 1 || version > 4) || owner != identity)) ||
+        if ((!fresh && ((version < 1 || version > 5) || owner != identity)) ||
             !storage::configure_database(db.get(), scalar, storage::max_database_bytes)) {
             throw Error::storage;
         }
@@ -370,6 +410,9 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         }
         if (version < 4) {
             exec(db.get(), location_schema);
+        }
+        if (version < 5) {
+            exec(db.get(), review_schema);
         }
         transaction.commit();
         return Store{std::move(db)};
@@ -443,38 +486,52 @@ bool valid_shelf_location(const inventory::BinId &location) noexcept {
 }
 
 Result<std::monostate, Error> Store::save_shelf_audit(const ShelfAudit &audit) {
-    if (!valid_shelf_location(audit.location) || audit.robot.value() == 0 ||
-        audit.robot.value() > max_id || audit.run.value() == 0 || audit.run.value() > max_id ||
-        audit.session == 0 || audit.session > max_id || audit.completed_ms == 0 ||
-        audit.completed_ms > max_id || audit.report.empty() ||
+    if (!valid_shelf_location(audit.location) || !valid_key(audit.key()) || audit.reviewed_ms ||
+        (audit.recheck_of && (!valid_key(*audit.recheck_of) || *audit.recheck_of == audit.key())) ||
+        audit.completed_ms == 0 || audit.completed_ms > max_id || audit.report.empty() ||
         audit.report.size() > shelf_report_limit || audit.report.find('\0') != std::string::npos) {
         return Error::invalid;
     }
     auto *db = database_.get();
     return write<std::monostate>(db, [&] {
         Statement save{db, R"sql(
-            INSERT INTO shelf_audit(location,robot,run,session,completed_ms,report)
-            VALUES(?1,?2,?3,?4,?5,?6)
+            INSERT INTO shelf_audit(location,robot,run,session,completed_ms,report,
+                                    source_robot,source_run,source_session)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
             ON CONFLICT(location,robot,run,session) DO NOTHING
         )sql"};
         save.put(1, audit.location.value);
-        save.put(2, audit.robot.value());
-        save.put(3, audit.run.value());
-        save.put(4, audit.session);
+        bind_key(save, 2, audit.key());
         save.put(5, audit.completed_ms);
         save.put(6, audit.report);
+        if (audit.recheck_of) {
+            bind_key(save, 7, *audit.recheck_of);
+        } else {
+            save.put_null(7);
+            save.put_null(8);
+            save.put_null(9);
+        }
         save.write();
         if (sqlite3_changes(db) == 0) {
             Statement existing{db, R"sql(
-                SELECT completed_ms,report FROM shelf_audit
+                SELECT completed_ms,report,source_robot,source_run,source_session FROM shelf_audit
                 WHERE location=?1 AND robot=?2 AND run=?3 AND session=?4
             )sql"};
             existing.put(1, audit.location.value);
-            existing.put(2, audit.robot.value());
-            existing.put(3, audit.run.value());
-            existing.put(4, audit.session);
+            bind_key(existing, 2, audit.key());
             if (!existing.row() || existing.integer(0) != audit.completed_ms ||
-                existing.bytes(1, SQLITE_TEXT, shelf_report_limit) != audit.report) {
+                existing.bytes(1, SQLITE_TEXT, shelf_report_limit) != audit.report ||
+                read_source(existing, 2) != audit.recheck_of) {
+                throw Error::conflict;
+            }
+        } else if (audit.recheck_of) {
+            Statement source{db, R"sql(
+                SELECT 1 FROM shelf_audit
+                WHERE location=?1 AND robot=?2 AND run=?3 AND session=?4
+            )sql"};
+            source.put(1, audit.location.value);
+            bind_key(source, 2, *audit.recheck_of);
+            if (!source.row()) {
                 throw Error::conflict;
             }
         }
@@ -490,22 +547,68 @@ Result<std::monostate, Error> Store::save_shelf_audit(const ShelfAudit &audit) {
     });
 }
 
+Result<std::uint64_t, Error> Store::review_shelf_audit(const inventory::BinId &location,
+                                                       ShelfAuditKey key,
+                                                       std::uint64_t reviewed_ms) {
+    if (!valid_shelf_location(location) || !valid_key(key) || reviewed_ms == 0 ||
+        reviewed_ms > max_id) {
+        return Error::invalid;
+    }
+    auto *db = database_.get();
+    return write<std::uint64_t>(db, [&] {
+        Statement latest{db, R"sql(
+            SELECT id,robot,run,session,completed_ms,reviewed_ms
+            FROM shelf_audit WHERE location=?1 ORDER BY id DESC LIMIT 1
+        )sql"};
+        latest.put(1, location.value);
+        if (!latest.row() || ShelfAuditKey{RobotId{latest.integer(1)}, RunId{latest.integer(2)},
+                                           latest.integer(3)} != key) {
+            throw Error::conflict;
+        }
+        if (!latest.is_null(5)) {
+            return latest.integer(5);
+        }
+        if (reviewed_ms < latest.integer(4)) {
+            throw Error::invalid;
+        }
+        Statement update{db, "UPDATE shelf_audit SET reviewed_ms=?1 WHERE id=?2"};
+        update.put(1, reviewed_ms);
+        update.put(2, latest.integer(0));
+        update.write();
+        return reviewed_ms;
+    });
+}
+
 Result<std::vector<ShelfAudit>, Error> Store::shelf_history(const inventory::BinId &location) {
     if (!valid_shelf_location(location)) {
         return Error::invalid;
     }
     return checked<std::vector<ShelfAudit>>([&] {
         Statement entries{database_.get(), R"sql(
-            SELECT robot,run,session,completed_ms,report
+            SELECT robot,run,session,completed_ms,report,source_robot,source_run,source_session,
+                   reviewed_ms
             FROM shelf_audit WHERE location=?1 ORDER BY id DESC LIMIT ?2
         )sql"};
         entries.put(1, location.value);
         entries.put(2, shelf_history_limit);
         std::vector<ShelfAudit> result;
         while (entries.row()) {
-            result.push_back({location, RobotId{entries.integer(0)}, RunId{entries.integer(1)},
-                              entries.integer(2), entries.integer(3),
-                              entries.bytes(4, SQLITE_TEXT, shelf_report_limit)});
+            ShelfAudit audit{location,
+                             RobotId{entries.integer(0)},
+                             RunId{entries.integer(1)},
+                             entries.integer(2),
+                             entries.integer(3),
+                             entries.bytes(4, SQLITE_TEXT, shelf_report_limit),
+                             read_source(entries, 5)};
+            if (!entries.is_null(8)) {
+                audit.reviewed_ms = entries.integer(8);
+            }
+            if (!valid_key(audit.key()) || audit.completed_ms == 0 ||
+                audit.recheck_of == audit.key() ||
+                (audit.reviewed_ms && *audit.reviewed_ms < audit.completed_ms)) {
+                throw Error::storage;
+            }
+            result.push_back(std::move(audit));
         }
         return result;
     });

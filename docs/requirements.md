@@ -86,3 +86,12 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Run both robots in one stockroom | Both robots advance on one fixed simulation clock, see the same moving actors and can detect each other through the simulated sensors. |
 | Operator | Coordinate narrow-aisle work | Assign competing work, see which robot is yielding, and verify that both jobs can proceed in order. Stop commands release or retain access according to whether the robot has cleared the corridor. |
 | Reviewer | Verify collision behavior and provenance | Test concurrent motion, physical separation, moving obstructions, cancellation, and completion of both assigned audits. Keep true positions inside physics, sensor generation and explicit test evaluators. |
+
+## Phase 21 discrepancy review and re-audits
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Team lead | Find work that needs review | Fleet counts locations whose latest report has unreviewed discrepancies or uncertain RFID evidence. Reviewing a report updates that count and leaves measured quantities and evidence intact. |
+| Operator | Recheck a location | From a completed location, queue a fresh audit with the selected available robot. Completing it creates a separate report linked to its source and starts a fresh review when warranted. |
+| Reviewer | Compare the evidence | Compare expected and observed counts by DPCI against the source audit. Keep unresolved and unidentified tags inspectable on each report. Preserve robot, run and session provenance and separate historical evidence from current review status. |
+| Reviewer | Verify durability | Migrate version 4 journals without rewriting reports. Reopen review timestamps and re-audit links after restart. Reject invalid or stale actions and preserve both existing history limits and single-robot behavior. |
