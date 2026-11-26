@@ -39,14 +39,26 @@ DashboardPoint item_center() {
     return {(low.x + high.x) / 2.0F, (low.y + high.y) / 2.0F};
 }
 
-const char *hold_reason(const LiveFrame &frame, std::string_view activity) {
+const char *hold_reason(const LiveFrame &frame, std::string_view activity, bool aisle_retained) {
+    if (frame.traffic_yield) {
+        return "Waiting for shared aisle";
+    }
     if (frame.telemetry.emergency_latched) {
         return "Emergency stop";
+    }
+    if (frame.telemetry.world_held) {
+        return "Moving obstruction";
     }
     if (frame.navigation && frame.navigation->reason != navigation::Reason::none &&
         (frame.navigation->state == navigation::State::waiting ||
          frame.navigation->state == navigation::State::yielding)) {
         return describe(frame.navigation->reason);
+    }
+    if (aisle_retained) {
+        return "Return to berth to release aisle";
+    }
+    if (frame.telemetry.collision_blocked) {
+        return "Motion blocked";
     }
     return activity == "Run held by operator" ? "Operator hold" : nullptr;
 }
@@ -184,9 +196,9 @@ void FleetPanel::robots(Panel &panel) {
             ImGui::TextDisabled("Idle");
         }
         const auto activity = fleet.status(i);
-        if (const auto *reason = hold_reason(frame, activity)) {
+        if (const auto *reason = hold_reason(frame, activity, fleet.aisle_retained(i))) {
             layout_.hold_visible = true;
-            ImGui::TextColored(auditing, "Hold");
+            ImGui::TextColored(auditing, "%s", frame.traffic_yield ? "Yielding" : "Hold");
             ImGui::SameLine();
             ImGui::TextWrapped("%s", reason);
         } else if (!working && activity != "Inventory ready" &&
@@ -228,11 +240,20 @@ void FleetPanel::robots(Panel &panel) {
     if (ImGui::Button("Browse locations", {-1, 0})) {
         panel = Panel::locations;
     }
-    ImGui::BeginDisabled(fleet.busy(selected_) || fleet.state(location_) == ShelfState::auditing);
-    if (ImGui::Button(history.empty() ? "Start location audit" : "Audit again", {-1, 0})) {
-        static_cast<void>(fleet.queue(selected_, location_));
+    if (fleet.aisle_retained(selected_)) {
+        ImGui::BeginDisabled(fleet.busy(selected_));
+        if (ImGui::Button("Return to berth", {-1, 0})) {
+            static_cast<void>(fleet.clear_aisle(selected_));
+        }
+        ImGui::EndDisabled();
+    } else {
+        ImGui::BeginDisabled(fleet.busy(selected_) ||
+                             fleet.state(location_) == ShelfState::auditing);
+        if (ImGui::Button(history.empty() ? "Start location audit" : "Audit again", {-1, 0})) {
+            static_cast<void>(fleet.queue(selected_, location_));
+        }
+        ImGui::EndDisabled();
     }
-    ImGui::EndDisabled();
     const bool inspect = ImGui::Button("Inspect robot", {-1, 0});
     layout_.maintenance = item_center();
     if (inspect) {
@@ -303,6 +324,14 @@ void FleetPanel::draw_map() {
         draw.AddLine(project(0, y), project(width_m, y), IM_COL32(34, 51, 66, 255));
     }
     draw.AddRect(floor_low, floor_high, IM_COL32(73, 96, 116, 255), 6.0F);
+    for (const auto &solid : fleet->layout().solids) {
+        if (solid.kind == world::SolidKind::wall) {
+            const auto &bounds = solid.bounds;
+            draw.AddRectFilled(project(bounds.min.x / 1000.0, bounds.max.y / 1000.0),
+                               project(bounds.max.x / 1000.0, bounds.min.y / 1000.0),
+                               IM_COL32(73, 96, 116, 255));
+        }
+    }
     for (std::size_t i = 1; i < frame.route.size(); ++i) {
         const auto a = frame.route[i - 1];
         const auto b = frame.route[i];
@@ -374,9 +403,10 @@ void FleetPanel::draw_map() {
         if (!marker("##robot-marker", at, {14.0F, 14.0F}, i, false)) {
             continue;
         }
-        const auto color = hold_reason(robot, fleet->status(i)) ? IM_COL32(255, 181, 87, 255)
-                           : i == selected_                     ? IM_COL32(103, 235, 212, 255)
-                                                                : IM_COL32(197, 206, 218, 255);
+        const auto color = hold_reason(robot, fleet->status(i), fleet->aisle_retained(i))
+                               ? IM_COL32(255, 181, 87, 255)
+                           : i == selected_ ? IM_COL32(103, 235, 212, 255)
+                                            : IM_COL32(197, 206, 218, 255);
         draw.AddCircleFilled(at, 12.0F, color);
         const char label = static_cast<char>('1' + i);
         centered_text(draw, at, IM_COL32(15, 27, 36, 255), {&label, 1});
@@ -493,8 +523,9 @@ void FleetPanel::maintenance() {
     ImGui::Text("Localization  %s", frame.map.pose == PoseState::current     ? "Current"
                                     : frame.map.pose == PoseState::uncertain ? "Uncertain"
                                                                              : "Waiting");
-    if (const auto *reason = hold_reason(frame, fleet.status(selected_))) {
-        ImGui::TextColored(auditing, "Hold");
+    if (const auto *reason =
+            hold_reason(frame, fleet.status(selected_), fleet.aisle_retained(selected_))) {
+        ImGui::TextColored(auditing, "%s", frame.traffic_yield ? "Yielding" : "Hold");
         ImGui::TextWrapped("%s", reason);
     } else if (frame.navigation) {
         ImGui::TextWrapped("%s", describe(frame.navigation->state));

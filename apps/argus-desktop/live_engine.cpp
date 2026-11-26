@@ -24,6 +24,17 @@ RunId new_run() {
     return RunId{1 + (value >> 2U)};
 }
 
+Result<simulation::RobotSimulation, simulation::RobotError>
+make_robot(const simulation::Warehouse &warehouse, std::uint64_t start_tick,
+           simulation::MotionConfig motion, simulation::EncoderEffects effects,
+           const std::optional<FleetAttachment> &fleet) {
+    if (fleet) {
+        return simulation::RobotSimulation::create_at(warehouse, audit::stockroom_berth(fleet->id),
+                                                      motion, {}, effects);
+    }
+    return simulation::RobotSimulation::create(warehouse, start_tick, motion, {}, effects);
+}
+
 } // namespace
 
 ObservedFrame::ObservedFrame(const LiveFrame &frame)
@@ -32,26 +43,28 @@ ObservedFrame::ObservedFrame(const LiveFrame &frame)
       route(frame.route.begin(), frame.route.end()), trace(frame.trace.begin(), frame.trace.end()),
       reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
       navigation{frame.navigation}, run{frame.run}, archived{frame.archived},
-      map_revision{frame.map_revision} {}
+      map_revision{frame.map_revision}, traffic_yield{frame.traffic_yield} {}
 
 LiveFrame ObservedFrame::view() const noexcept {
     const auto *scan = lidar ? &*lidar : nullptr;
-    return {telemetry,   grid,       scan,   route,
-            trace,       reads,      unique, map_status(telemetry, scan, estimate),
-            estimate,    navigation, run,    archived,
-            map_revision};
+    return {telemetry,    grid,         scan,   route,
+            trace,        reads,        unique, map_status(telemetry, scan, estimate),
+            estimate,     navigation,   run,    archived,
+            map_revision, traffic_yield};
 }
 
 LiveEngine::LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
-                       simulation::SensorRig sensors, mapping::Mapper mapper, Layout layout)
+                       simulation::SensorRig sensors, mapping::Mapper mapper, Layout layout,
+                       std::optional<FleetAttachment> fleet)
     : warehouse_{std::move(warehouse)}, initial_{robot}, robot_{std::move(robot)},
       sensors_{std::move(sensors)}, mapper_{std::move(mapper)}, layout_{std::move(layout)},
-      id_{new_run()} {
+      id_{new_run()}, fleet_{std::move(fleet)} {
     trace_.reserve(trace_limit);
 }
 
 Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse warehouse,
-                                                    std::uint64_t start_tick, bool shared_demo) {
+                                                    std::uint64_t start_tick, bool shared_demo,
+                                                    std::optional<FleetAttachment> fleet) {
     auto declared = warehouse.snapshot(start_tick);
     auto mapper = mapping::Mapper::create(app::map_spec(declared));
     if (const auto *error = std::get_if<mapping::MapError>(&mapper)) {
@@ -63,9 +76,9 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
                                     ? audit::stockroom_encoder_step_m
                                     : 0.0001;
     }
-    auto robot = simulation::RobotSimulation::create(
-        warehouse, start_tick, motion, {},
-        shared_demo ? simulation::EncoderEffects{} : simulation::warehouse_encoder_effects);
+    const auto effects =
+        shared_demo ? simulation::EncoderEffects{} : simulation::warehouse_encoder_effects;
+    auto robot = make_robot(warehouse, start_tick, motion, effects, fleet);
     if (const auto *error = std::get_if<simulation::RobotError>(&robot)) {
         return app::Failure{*error};
     }
@@ -75,7 +88,8 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
     if (shared_demo) {
         config.rfid.range_m = 3.5;
     }
-    auto sensors = simulation::SensorRig::create(declared.seed, config);
+    auto sensors = simulation::SensorRig::create(
+        fleet ? audit::stockroom_berth(fleet->id).seed : declared.seed, config);
     if (const auto *error = std::get_if<simulation::SensorError>(&sensors)) {
         return app::Failure{*error};
     }
@@ -84,7 +98,16 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
                       std::get<simulation::SensorRig>(std::move(sensors)),
                       std::get<mapping::Mapper>(std::move(mapper)),
                       {declared.scenario_id, declared.floor, declared.robot_radius_mm,
-                       std::move(declared.solids), std::move(declared.zones)}};
+                       std::move(declared.solids), std::move(declared.zones)},
+                      std::move(fleet)};
+}
+
+bool LiveEngine::advance(robot::Command command) {
+    if (fleet_) {
+        return fleet_->clock->step(fleet_->id, robot_, command);
+    }
+    robot_.step(command);
+    return true;
 }
 
 void LiveEngine::restart() {
@@ -101,11 +124,12 @@ void LiveEngine::restart() {
     reads_ = 0;
 }
 
-void LiveEngine::step(robot::Command manual, LiveAction action, bool armed, bool lidar_dropout) {
+bool LiveEngine::step(robot::Command manual, LiveAction action, bool armed, bool lidar_dropout) {
     const auto telemetry = robot_.telemetry();
-    if (action == LiveAction::restart && !manual.deadman && !telemetry.emergency_latched) {
+    if (!fleet_ && action == LiveAction::restart && !manual.deadman &&
+        !telemetry.emergency_latched) {
         restart();
-        return;
+        return true;
     }
     if (action == LiveAction::pause || manual.deadman || !armed) {
         navigator_.reset();
@@ -126,9 +150,12 @@ void LiveEngine::step(robot::Command manual, LiveAction action, bool armed, bool
     if (navigator_ && !manual.deadman && !manual.emergency_stop) {
         manual = navigator_->update(mapper_, telemetry, lidar_ ? &*lidar_ : nullptr);
     }
-    robot_.step(manual);
+    if (!advance(manual)) {
+        return false;
+    }
     capture(lidar_dropout);
     update_route(navigator_ ? &*navigator_ : nullptr);
+    return true;
 }
 
 void LiveEngine::update_route(const navigation::Navigator *navigator) {
@@ -189,8 +216,13 @@ void LiveEngine::update_trace() {
 simulation::ObservedRun LiveEngine::borrow_run(
     std::function<bool(const navigation::Navigator &, const sensors::RfidScan *)> observer) {
     navigator_.reset();
-    return {
-        robot_, sensors_, mapper_, lidar_, std::move(observer), Meters{layout_.radius_mm / 1000.0}};
+    return {robot_,
+            sensors_,
+            mapper_,
+            lidar_,
+            std::move(observer),
+            Meters{layout_.radius_mm / 1000.0},
+            [this](robot::Command command) { return advance(command); }};
 }
 
 void LiveEngine::observe_job(const navigation::Navigator &navigator,
@@ -203,11 +235,12 @@ void LiveEngine::observe_job(const navigation::Navigator &navigator,
     update_route(&navigator);
 }
 
-void LiveEngine::finish_job(bool emergency) noexcept {
+void LiveEngine::finish_job(bool emergency) {
     job_progress_.reset();
     navigator_.reset();
     route_.clear();
-    robot_.step({.emergency_stop = emergency});
+    traffic_yield_ = false;
+    static_cast<void>(advance({.emergency_stop = emergency}));
 }
 
 LiveFrame LiveEngine::frame() const noexcept {
@@ -225,7 +258,8 @@ LiveFrame LiveEngine::frame() const noexcept {
             navigator_ ? std::optional{navigator_->progress()} : job_progress_,
             id_,
             false,
-            mapper_.revision()};
+            mapper_.revision(),
+            traffic_yield_};
 }
 
 DiagnosticsFrame LiveEngine::diagnostics() const {

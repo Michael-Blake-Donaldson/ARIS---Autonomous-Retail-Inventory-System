@@ -23,3 +23,13 @@ foreach(mode IN ITEMS smoke reopen)
     message(STATUS "${output}")
 endforeach()
 file(REMOVE_RECURSE "${data}")
+set(data "${ARGUS_FLEET_ROOT}/fleet-traffic-${run}")
+file(MAKE_DIRECTORY "${data}")
+execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-traffic "${data}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 45)
+if(NOT result STREQUAL "0" OR NOT output MATCHES "\"sharedFleet\":true" OR
+    NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true")
+    message(FATAL_ERROR "Shared aisle failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
+endif()
+message(STATUS "${output}")
+file(REMOVE_RECURSE "${data}")

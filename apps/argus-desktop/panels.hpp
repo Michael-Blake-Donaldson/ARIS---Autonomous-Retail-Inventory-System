@@ -27,7 +27,7 @@ class Panels {
     [[nodiscard]] LiveFrame frame() const noexcept;
     [[nodiscard]] LiveFrame display_frame() const noexcept;
     [[nodiscard]] Overlays display_overlays(const LiveFrame &frame) const noexcept;
-    void tick_fleet(std::uint64_t due, bool focused);
+    void tick_fleet(bool focused);
     void hold_fleet();
     [[nodiscard]] bool reviewing() const noexcept { return saved_map_.has_value(); }
     [[nodiscard]] bool worker_driving() const noexcept { return !live_; }

@@ -392,9 +392,9 @@ Overlays Panels::display_overlays(const LiveFrame &frame) const noexcept {
     return frame.archived ? Overlays{.lidar = false, .occupancy = true} : overlays;
 }
 
-void Panels::tick_fleet(std::uint64_t due, bool focused) {
+void Panels::tick_fleet(bool focused) {
     if (auto *active = fleet.get()) {
-        active->tick(due, focused);
+        active->tick(focused);
     }
 }
 

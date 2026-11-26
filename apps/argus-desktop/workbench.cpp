@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <nlohmann/json.hpp>
@@ -124,7 +125,8 @@ ShelfReport location_report(const inventory::BinId &bin, const audit::LocationSu
 }
 
 WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &missions,
-                   std::uint64_t &sequence, simulation::ObservedRun *live) {
+                   std::uint64_t &sequence, simulation::ObservedRun *live,
+                   const Workbench::FleetWorker *fleet) {
     WorkResult result{.kind = job.kind};
     const auto next_id = [&] {
         if (sequence >= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -176,6 +178,9 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
         if (!evidence) {
             throw std::string{"Location coverage incomplete. Retry the audit."};
         }
+        if (fleet && !audit::return_to_berth(*live, fleet->id)) {
+            throw std::string{"Robot could not clear the aisle"};
+        }
         const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
@@ -197,6 +202,12 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
         result.status = "Shelf audit complete";
         break;
     }
+    case JobKind::clear_aisle:
+        if (!live || !fleet || !audit::return_to_berth(*live, fleet->id)) {
+            throw std::string{"Robot could not clear the aisle"};
+        }
+        result.status = "Aisle released";
+        break;
     case JobKind::scan_mission:
     case JobKind::dock_mission:
     case JobKind::inspect_mission: {
@@ -266,12 +277,18 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
 
 } // namespace
 
-Workbench::Workbench(std::optional<std::filesystem::path> directory, bool paced, bool stockroom)
-    : worker_{[this, directory = std::move(directory), paced, stockroom](std::stop_token stop) {
-          run(stop, directory, paced, stockroom);
+Workbench::Workbench(std::optional<std::filesystem::path> directory, bool paced,
+                     std::optional<FleetWorker> fleet)
+    : fleet_clock_{fleet ? fleet->clock : nullptr},
+      worker_{[this, directory = std::move(directory), paced,
+               fleet = std::move(fleet)](std::stop_token stop) mutable {
+          run(stop, directory, paced, std::move(fleet));
       }} {}
 
 Workbench::~Workbench() {
+    if (fleet_clock_) {
+        fleet_clock_->close();
+    }
     interrupt();
     worker_.request_stop();
     condition_.notify_all();
@@ -306,7 +323,7 @@ void Workbench::interrupt(bool emergency) noexcept {
 
 bool Workbench::busy() const {
     std::scoped_lock lock{mutex_};
-    return busy_;
+    return busy_ || result_.has_value();
 }
 
 std::optional<WorkResult> Workbench::take() {
@@ -320,8 +337,14 @@ void Workbench::publish(WorkResult result) {
     busy_ = false;
 }
 
+void Workbench::publish_preview(const LiveEngine &engine) {
+    auto frame = std::make_shared<ObservedFrame>(engine.frame());
+    std::scoped_lock lock{mutex_};
+    preview_ = std::move(frame);
+}
+
 void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::path> &directory,
-                    bool paced, bool stockroom) {
+                    bool paced, std::optional<FleetWorker> fleet) {
     try {
         std::optional<Sandbox> sandbox;
         if (!directory) {
@@ -336,31 +359,69 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
         auto store = checked(mission::Store::open(root / "missions.db"));
         if (seed_catalog) {
             const auto demo =
-                stockroom
-                    ? audit::stockroom_catalog()
-                    : checked(inventory::parse_catalog(catalog_fixture, inventory::Format::csv));
+                fleet ? audit::stockroom_catalog()
+                      : checked(inventory::parse_catalog(catalog_fixture, inventory::Format::csv));
             checked(catalog.insert_catalog(demo));
         }
         auto sequence = std::max(checked(catalog.last_session()), checked(store.highest_id()));
         while (!stop.stop_requested()) {
             std::unique_lock lock{mutex_};
-            if (!condition_.wait(lock, stop, [this] { return pending_.has_value(); })) {
+            if (fleet && !pending_) {
+                lock.unlock();
+                if (!fleet->engine->step({}, LiveAction::none, false)) {
+                    fleet->access->finish(fleet->id, false);
+                    std::scoped_lock lock{mutex_};
+                    available_ = false;
+                    busy_ = false;
+                    pending_.reset();
+                    result_ = WorkResult{.status = "Shared simulation stopped"};
+                    return;
+                }
+                const auto live = fleet->engine->frame();
+                if (live.telemetry.sample_tick % 4U == 0) {
+                    publish_preview(*fleet->engine);
+                }
+                if (!fleet->access->working()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+                }
+                continue;
+            }
+            if (!fleet && !condition_.wait(lock, stop, [this] { return pending_.has_value(); })) {
                 break;
             }
             auto job = std::exchange(pending_, std::nullopt).value();
             lock.unlock();
+            if (fleet && job.kind != JobKind::catalog) {
+                job.live = std::move(fleet->engine);
+            }
             WorkResult result{.kind = job.kind};
             bool failed = false;
             try {
                 std::optional<simulation::ObservedRun> observed;
                 if (job.live) {
+                    if (fleet) {
+                        unsigned ticks = 0;
+                        while (!interrupted_.load() && !stop.stop_requested() &&
+                               !fleet->access->admit(fleet->id)) {
+                            job.live->traffic_yield(true);
+                            if (!job.live->step({}, LiveAction::none, false)) {
+                                throw simulation::RunInterrupted{};
+                            }
+                            if (ticks++ % 4U == 0) {
+                                publish_preview(*job.live);
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+                        }
+                        job.live->traffic_yield(false);
+                        if (interrupted_.load() || stop.stop_requested()) {
+                            throw simulation::RunInterrupted{};
+                        }
+                    }
                     observed.emplace(job.live->borrow_run(
                         [&, ticks = 0U](const auto &navigator, const auto *scan) mutable {
                             job.live->observe_job(navigator, scan);
                             if (ticks++ % 8U == 0) {
-                                auto frame = std::make_shared<ObservedFrame>(job.live->frame());
-                                std::scoped_lock update{mutex_};
-                                preview_ = std::move(frame);
+                                publish_preview(*job.live);
                             }
                             if (paced) {
                                 std::this_thread::sleep_for(std::chrono::milliseconds{1});
@@ -368,7 +429,8 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                             return !interrupted_.load() && !stop.stop_requested();
                         }));
                 }
-                result = process(job, catalog, store, sequence, observed ? &*observed : nullptr);
+                result = process(job, catalog, store, sequence, observed ? &*observed : nullptr,
+                                 fleet ? &*fleet : nullptr);
             } catch (const simulation::RunInterrupted &) {
                 failed = true;
                 result.status = "Run held by operator";
@@ -392,11 +454,29 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                         }
                     }
                 }
-                result.live = std::move(job.live);
+                if (fleet) {
+                    const auto live = job.live->frame();
+                    const auto berth = audit::stockroom_berth(fleet->id).position;
+                    const auto &pose = live.telemetry.estimated_pose;
+                    const auto error = live.estimate ? live.estimate->distance_error_m : 1000.0;
+                    const bool parked = std::hypot(pose.x.value() - berth.x / 1000.0,
+                                                   pose.y.value() - berth.y / 1000.0) +
+                                                error <
+                                            0.55 &&
+                                        std::abs(live.telemetry.measured.linear.value()) < 0.025;
+                    fleet->access->finish(fleet->id, parked);
+                    fleet->engine = std::move(job.live);
+                    publish_preview(*fleet->engine);
+                } else {
+                    result.live = std::move(job.live);
+                }
             }
             publish(std::move(result));
         }
     } catch (...) {
+        if (fleet) {
+            fleet->clock->close();
+        }
         std::scoped_lock lock{mutex_};
         available_ = false;
         busy_ = false;

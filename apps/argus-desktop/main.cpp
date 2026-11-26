@@ -33,10 +33,11 @@ enum class Mode {
     reopen,
     fleet_smoke,
     fleet_reopen,
+    fleet_traffic,
     dashboard_record
 };
 bool fleet_probe(Mode mode) noexcept {
-    return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen ||
+    return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
            mode == Mode::dashboard_record;
 }
 bool captures_video(Mode mode) noexcept {
@@ -698,7 +699,8 @@ class FleetProbe {
             if (fleet.status(1) == "Auditing shelf" && fleet.frame(1).navigation) {
                 fleet.hold();
             }
-            if (fleet.status(1) == "Run held by operator" && layout.hold_visible) {
+            if ((fleet.status(1) == "Run held by operator" || fleet.aisle_retained(1)) &&
+                layout.hold_visible) {
                 return summarize(fleet);
             }
             break;
@@ -776,6 +778,85 @@ class FleetProbe {
     std::array<bool, Fleet::robot_count> maintenance_{};
 };
 
+class AisleProbe {
+  public:
+    std::optional<bool> advance(Panels &ui) {
+        auto *fleet = ui.fleet.get();
+        if (SDL_GetTicks() - started_ >= 35000) {
+            std::cerr << "Shared aisle probe timed out";
+            if (fleet) {
+                for (std::size_t index = 0; index < Fleet::robot_count; ++index) {
+                    const auto frame = fleet->frame(index);
+                    const auto &pose = frame.telemetry.estimated_pose;
+                    std::cerr << " [robot " << index + 1 << ": " << fleet->status(index)
+                              << ", yielding " << frame.traffic_yield << ", tick "
+                              << frame.telemetry.sample_tick << ", estimated position "
+                              << pose.x.value() << ", " << pose.y.value();
+                    if (frame.navigation) {
+                        std::cerr << ", " << describe(frame.navigation->state) << ", "
+                                  << describe(frame.navigation->reason);
+                    }
+                    std::cerr << ']';
+                }
+            }
+            std::cerr << '\n';
+            return false;
+        }
+        if (!fleet) {
+            return std::nullopt;
+        }
+        if (!queued_) {
+            if (SDL_GetTicks() - started_ < 1100 || fleet->busy(0) || fleet->busy(1)) {
+                return std::nullopt;
+            }
+            if (!fleet->queue(0, locations_[0]) || !fleet->queue(1, locations_[1])) {
+                std::cerr << "Could not queue both audits in A20\n";
+                return false;
+            }
+            queued_ = true;
+            return std::nullopt;
+        }
+        const auto second = fleet->frame(1);
+        const auto speed = std::abs(second.telemetry.measured.linear.value());
+        yielded_ =
+            yielded_ || (second.traffic_yield && speed < 0.025 && ui.fleet.layout().hold_visible);
+        for (std::size_t index = 0; index < locations_.size(); ++index) {
+            if (!fleet->busy(index) && fleet->state(locations_[index]) != ShelfState::complete) {
+                std::cerr << "Robot " << index + 1 << ": " << fleet->status(index) << '\n';
+                return false;
+            }
+        }
+        if (fleet->state(locations_[0]) != ShelfState::complete) {
+            return std::nullopt;
+        }
+        proceeded_ = proceeded_ || (!second.traffic_yield && speed > 0.05);
+        if (fleet->state(locations_[1]) != ShelfState::complete) {
+            return std::nullopt;
+        }
+        for (std::size_t index = 0; index < locations_.size(); ++index) {
+            const auto history = fleet->history(locations_[index]);
+            if (history.empty() || history.front().audit.robot != RobotId{index + 1} ||
+                fleet->aisle_retained(index)) {
+                return false;
+            }
+        }
+        if (!yielded_ || !proceeded_) {
+            std::cerr << "Shared aisle did not show both yielding and resumed motion\n";
+            return false;
+        }
+        std::cout << "{\"sharedFleet\":true,\"yielded\":true,\"bothAuditsCompleted\":true}\n";
+        return true;
+    }
+
+  private:
+    const Uint64 started_{SDL_GetTicks()};
+    const std::array<std::size_t, 2> locations_{Fleet::find("A20J05").value(),
+                                                Fleet::find("A20J06-W01").value()};
+    bool queued_{};
+    bool yielded_{};
+    bool proceeded_{};
+};
+
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
                  bool demo_scene) {
     Graphics graphics{window};
@@ -803,7 +884,10 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     auto last_step = SDL_GetTicks();
     bool pending_stop = false;
     std::optional<FleetProbe> probe;
-    if (verification) {
+    std::optional<AisleProbe> aisle_probe;
+    if (mode == Mode::fleet_traffic) {
+        aisle_probe.emplace();
+    } else if (verification) {
         probe.emplace(mode);
     }
     const auto hold = [&] {
@@ -860,12 +944,19 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         if (ui.action == LiveAction::emergency_stop) {
             ui.hold_fleet();
         }
-        ui.tick_fleet(due, focused);
+        ui.tick_fleet(focused);
         if (fleet_panel(ui.panel)) {
             controls.disarm();
         }
         if (probe) {
             if (const auto result = probe->advance(ui, graphics.photos_ready())) {
+                hold();
+                return *result ? app::Status{std::monostate{}}
+                               : app::Status{Error::graphics_present};
+            }
+        }
+        if (aisle_probe) {
+            if (const auto result = aisle_probe->advance(ui)) {
                 hold();
                 return *result ? app::Status{std::monostate{}}
                                : app::Status{Error::graphics_present};
@@ -989,6 +1080,9 @@ app::Status verify_fleet(const app::Options &options) {
 app::Status reopen_fleet(const app::Options &options) {
     return desktop(options, Mode::fleet_reopen);
 }
+app::Status verify_traffic(const app::Options &options) {
+    return desktop(options, Mode::fleet_traffic);
+}
 app::Status record_dashboard(const app::Options &options) {
     return desktop(options, Mode::dashboard_record);
 }
@@ -997,9 +1091,10 @@ app::Status record_dashboard(const app::Options &options) {
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
-                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
-                      option == "--ui-fleet-reopen" || option == "--ui-dashboard-record")) {
+    if (argc == 3 &&
+        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
+         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
+         option == "--ui-fleet-traffic" || option == "--ui-dashboard-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             return 2;
@@ -1013,6 +1108,7 @@ int main(int argc, char **argv) {
                            : option == "--ui-reopen"           ? reopen
                            : option == "--ui-fleet-smoke"      ? verify_fleet
                            : option == "--ui-fleet-reopen"     ? reopen_fleet
+                           : option == "--ui-fleet-traffic"    ? verify_traffic
                            : option == "--ui-dashboard-record" ? record_dashboard
                                                                : interactive;
         return app::run_application(1, argv, "argus-desktop", entry);

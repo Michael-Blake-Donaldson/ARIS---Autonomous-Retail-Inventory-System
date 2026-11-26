@@ -5,13 +5,9 @@
 namespace argus::desktop {
 namespace {
 
-std::unique_ptr<LiveEngine> start_robot(std::size_t index) {
-    auto warehouse = audit::stockroom_world(RobotId{index + 1});
-    auto *world = std::get_if<simulation::Warehouse>(&warehouse);
-    if (!world) {
-        return {};
-    }
-    auto engine = LiveEngine::create(std::move(*world), 0, true);
+std::unique_ptr<LiveEngine> start_robot(const simulation::Warehouse &world,
+                                        std::shared_ptr<simulation::FleetClock> clock, RobotId id) {
+    auto engine = LiveEngine::create(world, 0, true, FleetAttachment{id, std::move(clock)});
     auto *live = std::get_if<LiveEngine>(&engine);
     return live ? std::make_unique<LiveEngine>(std::move(*live)) : nullptr;
 }
@@ -58,15 +54,23 @@ Fleet::Fleet(const std::optional<std::filesystem::path> &directory) : history_(l
             history_error_ = true;
         }
     }
+    auto model = audit::shared_stockroom_world();
+    const auto *world = std::get_if<simulation::Warehouse>(&model);
+    if (!world) {
+        return;
+    }
     for (std::size_t i = 0; i < units_.size(); ++i) {
-        auto engine = start_robot(i);
+        const RobotId id{i + 1};
+        auto engine = start_robot(*world, clock_, id);
         if (!engine) {
+            clock_->close();
             return;
         }
         if (!layout_) {
             layout_ = engine->layout();
         }
-        units_[i] = std::make_unique<Unit>(std::move(engine));
+        units_[i] =
+            std::make_unique<Unit>(Workbench::FleetWorker{id, std::move(engine), clock_, access_});
     }
 }
 
@@ -74,7 +78,7 @@ bool Fleet::ready() const noexcept { return units_.back() != nullptr; }
 
 bool Fleet::queue(std::size_t robot, std::size_t location) {
     if (!ready() || robot >= units_.size() || location >= history_.size() || busy(robot) ||
-        state(location) == ShelfState::auditing) {
+        state(location) == ShelfState::auditing || aisle_retained(robot)) {
         return false;
     }
     auto &unit = *units_[robot];
@@ -84,7 +88,23 @@ bool Fleet::queue(std::size_t robot, std::size_t location) {
     return true;
 }
 
-void Fleet::tick(std::uint64_t steps, bool focused) {
+bool Fleet::clear_aisle(std::size_t robot) {
+    if (!ready() || robot >= units_.size() || busy(robot) || !aisle_retained(robot)) {
+        return false;
+    }
+    auto &unit = *units_[robot];
+    unit.pending = true;
+    unit.clearing = true;
+    unit.target.reset();
+    unit.status = "Berth return queued";
+    return true;
+}
+
+bool Fleet::aisle_retained(std::size_t robot) const {
+    return access_->retained(RobotId{robot + 1});
+}
+
+void Fleet::tick(bool focused) {
     if (!ready()) {
         return;
     }
@@ -94,32 +114,21 @@ void Fleet::tick(std::uint64_t steps, bool focused) {
     for (std::size_t i = 0; i < units_.size(); ++i) {
         auto &unit = *units_[i];
         receive(unit, i);
-        if (focused && unit.pending && unit.engine) {
+        if (focused && unit.pending) {
             dispatch(unit, i);
-        }
-        if (unit.engine) {
-            for (std::uint64_t step = 0; step < steps; ++step) {
-                unit.engine->step({}, LiveAction::none, focused);
-            }
         }
     }
 }
 
 void Fleet::receive(Unit &unit, std::size_t index) {
-    if (!unit.engine) {
-        if (auto preview = unit.workbench.preview()) {
-            unit.preview = std::move(preview);
-        }
+    if (auto preview = unit.workbench.preview()) {
+        unit.preview = std::move(preview);
     }
     auto result = unit.workbench.take();
     if (!result) {
         return;
     }
     unit.status = std::move(result->status);
-    if (result->live) {
-        unit.engine = std::move(result->live);
-        unit.preview.reset();
-    }
     if (result->shelf) {
         auto saved = std::move(*result->shelf);
         auto report = decode_shelf_report(saved.report);
@@ -138,16 +147,34 @@ void Fleet::receive(Unit &unit, std::size_t index) {
 
 void Fleet::dispatch(Unit &unit, std::size_t index) {
     unit.pending = false;
-    unit.preview = std::make_shared<ObservedFrame>(unit.engine->frame());
+    const RobotId id{index + 1};
+    if (std::exchange(unit.clearing, false)) {
+        if (access_->request_clearance(id)) {
+            if (unit.workbench.submit(Job{.kind = JobKind::clear_aisle})) {
+                unit.status = "Returning to berth";
+                return;
+            }
+            access_->finish(id, false);
+        }
+        unit.status = "Berth return unavailable";
+        return;
+    }
     const auto &location = locations()[*unit.target];
+    const auto berth = audit::stockroom_berth(id).position.x / 1000.0;
+    const auto location_x = location.center.x_m + 1.15;
+    const auto pose = unit.preview->telemetry.estimated_pose.x.value();
+    const navigation::TrafficSpan span{Meters{std::min({berth, location_x, pose}) - 0.9},
+                                       Meters{std::max({berth, location_x, pose}) + 0.9}};
+    if (!access_->request(id, span)) {
+        unit.status = "Aisle request unavailable";
+        return;
+    }
     Job job{.kind = JobKind::shelf_audit,
-            .live = std::move(unit.engine),
-            .shelf = ShelfAssignment{location.id, RobotId{index + 1}, unit.preview->run, journal_}};
+            .shelf = ShelfAssignment{location.id, id, unit.preview->run, journal_}};
     if (unit.workbench.submit(std::move(job))) {
         unit.status = "Auditing shelf";
     } else {
-        unit.engine = std::move(job.live);
-        unit.preview.reset();
+        access_->finish(id, true);
         unit.status = "Robot unavailable";
     }
 }
@@ -156,9 +183,10 @@ void Fleet::hold() {
     for (auto &unit : units_) {
         if (unit) {
             if (std::exchange(unit->pending, false)) {
+                unit->clearing = false;
                 unit->status = "Audit held before dispatch";
             }
-            if (!unit->engine) {
+            if (unit->workbench.busy()) {
                 unit->workbench.interrupt();
             }
         }
@@ -167,12 +195,12 @@ void Fleet::hold() {
 
 LiveFrame Fleet::frame(std::size_t robot) const noexcept {
     const auto &unit = *units_[robot];
-    return unit.engine ? unit.engine->frame() : unit.preview->view();
+    return unit.preview->view();
 }
 
-ShelfState Fleet::state(std::size_t location) const noexcept {
+ShelfState Fleet::state(std::size_t location) const {
     if (std::ranges::any_of(units_, [&](const auto &unit) {
-            return unit && unit->target == location && (unit->pending || !unit->engine);
+            return unit && unit->target == location && (unit->pending || unit->workbench.busy());
         })) {
         return ShelfState::auditing;
     }
@@ -181,7 +209,7 @@ ShelfState Fleet::state(std::size_t location) const noexcept {
 
 bool Fleet::busy(std::size_t robot) const {
     const auto &unit = *units_[robot];
-    return unit.pending || !unit.engine || unit.workbench.busy();
+    return unit.pending || unit.workbench.busy();
 }
 
 std::span<const ShelfEntry> Fleet::history(std::size_t location) const noexcept {
@@ -192,7 +220,7 @@ std::optional<std::size_t> Fleet::assignment(std::size_t robot) const noexcept {
     return units_[robot]->target;
 }
 
-AisleSummary Fleet::aisle_summary(std::size_t aisle) const noexcept {
+AisleSummary Fleet::aisle_summary(std::size_t aisle) const {
     AisleSummary summary;
     for (std::size_t i = 0; i < history_.size(); ++i) {
         if (locations()[i].aisle == aisle) {

@@ -2,6 +2,7 @@
 
 #include "argus/audit/mission.hpp"
 #include "argus/mission/store.hpp"
+#include "argus/navigation/traffic.hpp"
 #include "live_engine.hpp"
 
 #include <atomic>
@@ -17,6 +18,7 @@ enum class JobKind {
     find,
     audit,
     shelf_audit,
+    clear_aisle,
     scan_mission,
     dock_mission,
     inspect_mission,
@@ -59,8 +61,15 @@ struct WorkResult {
 
 class Workbench {
   public:
+    struct FleetWorker {
+        RobotId id;
+        std::unique_ptr<LiveEngine> engine;
+        std::shared_ptr<simulation::FleetClock> clock;
+        std::shared_ptr<navigation::AisleAccess> access;
+    };
+
     explicit Workbench(std::optional<std::filesystem::path> directory = {}, bool paced = true,
-                       bool stockroom = false);
+                       std::optional<FleetWorker> fleet = {});
     ~Workbench();
     Workbench(const Workbench &) = delete;
     Workbench &operator=(const Workbench &) = delete;
@@ -72,7 +81,8 @@ class Workbench {
 
   private:
     void run(std::stop_token stop, const std::optional<std::filesystem::path> &directory,
-             bool paced, bool stockroom);
+             bool paced, std::optional<FleetWorker> fleet);
+    void publish_preview(const LiveEngine &engine);
     void publish(WorkResult result);
 
     mutable std::mutex mutex_;
@@ -84,6 +94,7 @@ class Workbench {
     std::atomic_bool emergency_{};
     bool busy_{true};
     bool available_{true};
+    std::shared_ptr<simulation::FleetClock> fleet_clock_;
     std::jthread worker_;
 };
 
