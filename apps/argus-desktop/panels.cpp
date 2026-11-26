@@ -558,15 +558,23 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
     const auto shown = panel;
     const bool sensors = shown == Panel::maintenance;
     const bool map_view = shown == Panel::fleet;
-    pane("##dashboard-center", {nav, header}, {center, body},
+    pane(map_view  ? "##dashboard-center-map"
+         : sensors ? "##dashboard-center-maintenance"
+                   : "##dashboard-center-audit",
+         {nav, header}, {center, body},
          sensors ? ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar : 0);
     Canvas viewport{};
     if (map_view) {
         heading("Warehouse map");
         fleet.draw_map();
     } else if (sensors) {
-        ImGui::Text("Robot %zu  /  %s", fleet.selected() + 1,
-                    Fleet::locations[fleet.selected()].label.data());
+        ImGui::Text("Robot %zu", fleet.selected() + 1);
+        if (const auto *active = fleet.get()) {
+            if (const auto assigned = active->assignment(fleet.selected())) {
+                ImGui::SameLine();
+                quiet(Fleet::locations()[*assigned].id.value);
+            }
+        }
         scene_camera(camera, false);
         viewport = {nav, header + 76.0F, center, std::max(1.0F, body - 76.0F)};
     } else {
@@ -575,7 +583,11 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
     fleet.check_horizontal_scroll();
     ImGui::End();
 
-    pane("##dashboard-sidebar", {size.x - right, header}, {right, body});
+    pane(map_view  ? "##dashboard-robots"
+         : sensors ? "##dashboard-sensors"
+                   : "##dashboard-locations",
+         {size.x - right, header}, {right, body},
+         shown == Panel::locations ? ImGuiWindowFlags_AlwaysVerticalScrollbar : 0);
     heading(map_view ? "Robots" : sensors ? "Maintenance" : "Locations");
     ImGui::Separator();
     fleet.draw_sidebar(panel);

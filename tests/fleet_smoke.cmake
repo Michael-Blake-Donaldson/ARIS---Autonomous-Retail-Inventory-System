@@ -8,7 +8,9 @@ file(MAKE_DIRECTORY "${data}")
 foreach(mode IN ITEMS smoke reopen)
     execute_process(COMMAND "${ARGUS_DESKTOP}" "--ui-fleet-${mode}" "${data}"
         RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 40)
-    if(NOT result STREQUAL "0" OR NOT output MATCHES "\"fleetAudits\":true")
+    if(NOT result STREQUAL "0" OR NOT output MATCHES "\"fleetAudits\":true" OR
+       NOT output MATCHES "\"mixedLocations\":true" OR
+       NOT output MATCHES "\"auditableLocations\":21")
         message(FATAL_ERROR "Fleet ${mode} failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
     endif()
     if(mode STREQUAL "reopen" AND

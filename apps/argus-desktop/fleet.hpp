@@ -1,5 +1,6 @@
 #pragma once
 
+#include "argus/audit/stockroom.hpp"
 #include "fleet_report.hpp"
 #include "workbench.hpp"
 
@@ -7,35 +8,37 @@ namespace argus::desktop {
 
 enum class ShelfState { pending, auditing, complete };
 
-struct ShelfLocation {
-    std::string_view label;
-    std::string_view aisle;
-    mapping::Point center;
-    std::int32_t spawn_x_mm;
-};
-
 struct ShelfEntry {
     mission::ShelfAudit audit;
     ShelfReport report;
 };
 
+struct AisleSummary {
+    std::size_t complete{};
+    std::size_t total{};
+    std::size_t review{};
+};
+
 class Fleet {
   public:
-    static constexpr std::array<ShelfLocation, 2> locations{{
-        {"A10J05", "SOFTLINES", {2.7, 5.8}, 4125},
-        {"A20J05", "TECH", {8.3, 5.8}, 7375},
-    }};
+    static constexpr std::size_t robot_count = audit::stockroom_robot_count;
+    [[nodiscard]] static std::span<const audit::StockLocation> locations();
+    [[nodiscard]] static std::optional<std::size_t> find(std::string_view id);
+    [[nodiscard]] static std::size_t initial_location(std::size_t robot);
 
     explicit Fleet(const std::optional<std::filesystem::path> &directory);
     [[nodiscard]] bool ready() const noexcept;
-    [[nodiscard]] bool queue(std::size_t index);
+    [[nodiscard]] bool queue(std::size_t robot, std::size_t location);
     void tick(std::uint64_t steps, bool focused);
     void hold();
-    [[nodiscard]] LiveFrame frame(std::size_t index) const noexcept;
-    [[nodiscard]] ShelfState state(std::size_t index) const noexcept;
-    [[nodiscard]] bool busy(std::size_t index) const;
-    [[nodiscard]] std::span<const ShelfEntry> history(std::size_t index) const noexcept;
-    [[nodiscard]] std::string_view status(std::size_t index) const noexcept;
+    [[nodiscard]] LiveFrame frame(std::size_t robot) const noexcept;
+    [[nodiscard]] ShelfState state(std::size_t location) const noexcept;
+    [[nodiscard]] bool busy(std::size_t robot) const;
+    [[nodiscard]] std::span<const ShelfEntry> history(std::size_t location) const noexcept;
+    [[nodiscard]] std::optional<std::size_t> assignment(std::size_t robot) const noexcept;
+    [[nodiscard]] AisleSummary aisle_summary(std::size_t aisle) const noexcept;
+    [[nodiscard]] std::string_view status(std::size_t robot) const noexcept;
+    [[nodiscard]] const Layout &layout() const noexcept { return *layout_; }
     [[nodiscard]] bool history_error() const noexcept { return history_error_; }
     [[nodiscard]] bool durable() const noexcept { return journal_.has_value(); }
 
@@ -44,15 +47,17 @@ class Fleet {
         explicit Unit(std::unique_ptr<LiveEngine> live) : engine{std::move(live)} {}
         std::unique_ptr<LiveEngine> engine;
         std::shared_ptr<const ObservedFrame> preview;
-        std::vector<ShelfEntry> history;
+        std::optional<std::size_t> target;
         std::string status{"Starting"};
         bool pending{};
-        Workbench workbench;
+        Workbench workbench{{}, true, true};
     };
 
     void receive(Unit &unit, std::size_t index);
     void dispatch(Unit &unit, std::size_t index);
-    std::array<std::unique_ptr<Unit>, locations.size()> units_;
+    std::array<std::unique_ptr<Unit>, robot_count> units_;
+    std::vector<std::vector<ShelfEntry>> history_;
+    std::optional<Layout> layout_;
     std::optional<std::filesystem::path> journal_;
     bool history_error_{};
 };

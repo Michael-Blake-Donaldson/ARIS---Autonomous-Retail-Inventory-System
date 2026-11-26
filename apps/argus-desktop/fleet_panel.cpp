@@ -80,7 +80,7 @@ void product_name(const ShelfProduct &row, const FleetPhotos &photos) {
         }
         for (const auto &tag : row.tags) {
             ImGui::TextWrapped("%s", tag.epc.value.c_str());
-            ImGui::TextDisabled("%s", tag.observed_here ? "Observed here" : "Not observed here");
+            ImGui::TextDisabled("%s", tag.observed_here ? "Observed here" : "Unconfirmed here");
         }
         ImGui::TreePop();
     }
@@ -109,15 +109,41 @@ void FleetPanel::open(const std::optional<std::filesystem::path> &directory) {
 }
 
 void FleetPanel::select(std::size_t index) noexcept {
-    if (index != selected_ && index < Fleet::locations.size()) {
+    if (index < Fleet::robot_count) {
         selected_ = index;
+    }
+}
+
+void FleetPanel::select_location(std::size_t index) {
+    const auto list = Fleet::locations();
+    if (index < list.size() && index != location_) {
+        location_ = index;
+        aisle_ = list[index].aisle;
         history_index_ = 0;
         product_page_ = 0;
     }
 }
 
+void FleetPanel::select_aisle(std::size_t index) {
+    const auto list = Fleet::locations();
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        if (list[i].aisle == index && !get()->history(i).empty()) {
+            select_location(i);
+            return;
+        }
+    }
+    const auto found = std::ranges::find(list, index, &audit::StockLocation::aisle);
+    if (found != list.end()) {
+        select_location(static_cast<std::size_t>(found - list.begin()));
+    }
+}
 void FleetPanel::check_horizontal_scroll() {
-    layout_.horizontal_scroll = layout_.horizontal_scroll || ImGui::GetScrollMaxX() > 0.5F;
+    const auto width = ImGui::GetScrollMaxX();
+    if (width > 0.5F) {
+        layout_.horizontal_scroll = true;
+        layout_.overflow_position = ImGui::GetWindowPos().x;
+        layout_.overflow_width = width;
+    }
 }
 
 void FleetPanel::mark_maintenance_link() { layout_.maintenance = item_center(); }
@@ -138,9 +164,8 @@ void FleetPanel::draw_sidebar(Panel &panel) {
 
 void FleetPanel::robots(Panel &panel) {
     auto &fleet = *get();
-    for (std::size_t i = 0; i < Fleet::locations.size(); ++i) {
+    for (std::size_t i = 0; i < Fleet::robot_count; ++i) {
         const auto frame = fleet.frame(i);
-        const auto &location = Fleet::locations[i];
         const auto &power = frame.telemetry;
         const auto battery = power.capacity_uj > 0 ? 100.0 * static_cast<double>(power.energy_uj) /
                                                          static_cast<double>(power.capacity_uj)
@@ -148,46 +173,64 @@ void FleetPanel::robots(Panel &panel) {
         std::array<char, 72> caption{};
         std::snprintf(caption.data(), caption.size(),
                       "Robot %zu    %.0f%% battery###fleet-robot-%zu", i + 1, battery, i);
-        if (ImGui::Selectable(caption.data(), selected_ == i, 0, {0, 27.0F})) {
+        if (ImGui::Selectable(caption.data(), selected_ == i, 0, {0, 25.0F})) {
             select(i);
         }
-        const auto state = fleet.state(i);
-        ImGui::TextDisabled("%s  /  %s", location.label.data(),
-                            state == ShelfState::auditing ? "Shelf audit" : "Idle");
+        const auto assigned = fleet.assignment(i);
+        const bool working = assigned && fleet.busy(i);
+        if (working) {
+            ImGui::TextDisabled("Auditing %s", Fleet::locations()[*assigned].id.value.c_str());
+        } else {
+            ImGui::TextDisabled("Idle");
+        }
         const auto activity = fleet.status(i);
         if (const auto *reason = hold_reason(frame, activity)) {
             layout_.hold_visible = true;
             ImGui::TextColored(auditing, "Hold");
             ImGui::SameLine();
             ImGui::TextWrapped("%s", reason);
-        } else if (state != ShelfState::auditing && activity != "Inventory ready" &&
+        } else if (!working && activity != "Inventory ready" &&
                    activity != "Shelf audit complete" && activity != "Starting") {
             ImGui::TextWrapped("%.*s", static_cast<int>(activity.size()), activity.data());
         }
-        ImGui::Spacing();
     }
     ImGui::Separator();
-    const auto &location = Fleet::locations.at(selected_);
-    ImGui::TextColored(accent, "%s", location.label.data());
-    ImGui::SameLine();
-    const auto state = status(fleet.state(selected_));
-    ImGui::TextColored(state.color, "%s", state.text);
-    const auto history = fleet.history(selected_);
-    if (!history.empty() && history.front().report.needs_review()) {
-        ImGui::TextColored(auditing, "Needs review");
+    for (std::size_t i = 0; i < audit::stockroom_aisles.size(); ++i) {
+        const auto summary = fleet.aisle_summary(i);
+        std::array<char, 64> label{};
+        std::snprintf(label.data(), label.size(), "%s   %zu/%zu complete###aisle-%zu",
+                      audit::stockroom_aisles[i].data(), summary.complete, summary.total, i);
+        if (ImGui::Selectable(label.data(), aisle_ == i)) {
+            select_aisle(i);
+        }
+        if (summary.review != 0) {
+            ImGui::TextColored(auditing, "%zu need review", summary.review);
+        }
     }
+    ImGui::Separator();
+    const auto &location = Fleet::locations()[location_];
+    ImGui::TextColored(accent, "%s", location.id.value.c_str());
+    ImGui::SameLine();
+    const auto state = status(fleet.state(location_));
+    ImGui::TextColored(state.color, "%s", state.text);
+    const auto history = fleet.history(location_);
     if (!history.empty()) {
+        if (history.front().report.needs_review()) {
+            ImGui::TextColored(auditing, "Needs review");
+        }
         const bool opened = ImGui::Button("Open audit", {-1, 0});
         layout_.open_audit = item_center();
         if (opened) {
-            history_index_ = 0;
-            product_page_ = 0;
+            history_index_ = product_page_ = 0;
             panel = Panel::locations;
         }
     }
-    ImGui::BeginDisabled(fleet.busy(selected_));
-    if (ImGui::Button(history.empty() ? "Start shelf audit" : "Audit again", {-1, 0})) {
-        static_cast<void>(fleet.queue(selected_));
+    if (ImGui::Button("Browse locations", {-1, 0})) {
+        panel = Panel::locations;
+    }
+    ImGui::BeginDisabled(fleet.busy(selected_) || fleet.state(location_) == ShelfState::auditing);
+    if (ImGui::Button(history.empty() ? "Start location audit" : "Audit again", {-1, 0})) {
+        static_cast<void>(fleet.queue(selected_, location_));
     }
     ImGui::EndDisabled();
     const bool inspect = ImGui::Button("Inspect robot", {-1, 0});
@@ -196,7 +239,6 @@ void FleetPanel::robots(Panel &panel) {
         panel = Panel::maintenance;
     }
 }
-
 void FleetPanel::draw_map() {
     const auto *fleet = get();
     if (!fleet) {
@@ -268,7 +310,8 @@ void FleetPanel::draw_map() {
                      3.0F);
     }
 
-    const auto marker = [&](const char *id, ImVec2 at, ImVec2 half, std::size_t index) {
+    const auto marker = [&](const char *id, ImVec2 at, ImVec2 half, std::size_t index,
+                            bool aisle_marker) {
         const ImVec2 low{at.x - half.x, at.y - half.y};
         const ImVec2 high{at.x + half.x, at.y + half.y};
         if (low.x < origin.x || low.y < origin.y || high.x > limit.x || high.y > limit.y) {
@@ -277,25 +320,38 @@ void FleetPanel::draw_map() {
         ImGui::SetCursorScreenPos(low);
         ImGui::PushID(static_cast<int>(index));
         if (ImGui::InvisibleButton(id, {half.x * 2.0F, half.y * 2.0F})) {
-            select(index);
+            if (aisle_marker) {
+                select_aisle(index);
+            } else {
+                select(index);
+            }
         }
         ImGui::PopID();
         return true;
     };
-
-    for (std::size_t i = 0; i < Fleet::locations.size(); ++i) {
-        const auto &location = Fleet::locations[i];
-        const auto &at = location.center;
-        const auto color = ImGui::ColorConvertFloat4ToU32(status(fleet->state(i)).color);
-        const auto shelf_low = project(at.x_m - 0.50, at.y_m + 1.0);
-        const auto shelf_high = project(at.x_m + 0.50, at.y_m - 1.0);
+    const auto locations = Fleet::locations();
+    for (std::size_t i = 0; i < audit::stockroom_aisles.size(); ++i) {
+        const auto rack = std::ranges::find(locations, i, &audit::StockLocation::aisle);
+        if (rack == locations.end()) {
+            continue;
+        }
+        const auto &at = rack->center;
+        const auto summary = fleet->aisle_summary(i);
+        const auto color =
+            ImGui::ColorConvertFloat4ToU32(summary.complete == summary.total ? complete
+                                           : summary.complete != 0           ? auditing
+                                                                             : pending);
+        const auto shelf_low = project(at.x_m - 0.82, at.y_m + rack->half_width.value());
+        const auto shelf_high = project(at.x_m + 0.18, at.y_m - rack->half_width.value());
         draw.AddRectFilled(shelf_low, shelf_high, IM_COL32(42, 62, 79, 255), 4.0F);
-        draw.AddRect(shelf_low, shelf_high, color, 4.0F, 0, i == selected_ ? 2.5F : 1.0F);
-        const auto label_at = project(at.x_m, at.y_m + 1.47);
-        if (marker("##shelf-marker", label_at, {40.0F, 15.0F}, i)) {
-            const auto label = zoom_ >= 1.25F ? location.label : location.label.substr(0, 3);
-            draw.AddRectFilled({label_at.x - 38.0F, label_at.y - 13.0F},
-                               {label_at.x + 38.0F, label_at.y + 13.0F}, IM_COL32(35, 54, 70, 255),
+        draw.AddRect(shelf_low, shelf_high, color, 4.0F, 0, i == aisle_ ? 2.5F : 1.0F);
+        const auto label_at = project(at.x_m, at.y_m + 1.98);
+        if (marker("##aisle-marker", label_at, {48.0F, 15.0F}, i, true)) {
+            const auto label = zoom_ >= 1.25F && i == aisle_
+                                   ? std::string_view{locations[location_].id.value}
+                                   : audit::stockroom_aisles[i];
+            draw.AddRectFilled({label_at.x - 47.0F, label_at.y - 13.0F},
+                               {label_at.x + 47.0F, label_at.y + 13.0F}, IM_COL32(35, 54, 70, 255),
                                6.0F);
             centered_text(draw, label_at, color, label);
             if (i == 1) {
@@ -303,18 +359,19 @@ void FleetPanel::draw_map() {
                 layout_.shelf_ids = zoom_ >= 1.25F;
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s  /  %s", location.label.data(), status(fleet->state(i)).text);
+                ImGui::SetTooltip("%s  /  %zu of %zu complete", audit::stockroom_aisles[i].data(),
+                                  summary.complete, summary.total);
             }
         }
     }
-    for (std::size_t i = 0; i < Fleet::locations.size(); ++i) {
+    for (std::size_t i = 0; i < Fleet::robot_count; ++i) {
         const auto robot = fleet->frame(i);
         if (!robot.estimate) {
             continue;
         }
         const auto &pose = robot.estimate->pose;
         const auto at = project(pose.x.value(), pose.y.value());
-        if (!marker("##robot-marker", at, {14.0F, 14.0F}, i)) {
+        if (!marker("##robot-marker", at, {14.0F, 14.0F}, i, false)) {
             continue;
         }
         const auto color = hold_reason(robot, fleet->status(i)) ? IM_COL32(255, 181, 87, 255)
@@ -331,48 +388,92 @@ void FleetPanel::draw_map() {
     ImGui::EndChild();
 }
 
+void FleetPanel::location_row(std::size_t index) {
+    const auto &fleet = *get();
+    const auto &location = Fleet::locations()[index];
+    if (ImGui::Selectable(location.id.value.c_str(), location_ == index)) {
+        select_location(index);
+    }
+    const auto state = status(fleet.state(index));
+    ImGui::TextColored(state.color, "%s", state.text);
+    const auto history = fleet.history(index);
+    if (!history.empty() && history.front().report.needs_review()) {
+        ImGui::SameLine();
+        ImGui::TextColored(auditing, "Needs review");
+    }
+}
+
 void FleetPanel::locations() {
-    auto &fleet = *get();
+    const auto &fleet = *get();
     ImGui::SetNextItemWidth(-1.0F);
-    ImGui::InputTextWithHint("##shelf-search", "Search shelf ID", shelf_filter_.data(),
+    ImGui::InputTextWithHint("##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(),
                              shelf_filter_.size());
     const std::string_view query{shelf_filter_.data()};
+    const auto list = Fleet::locations();
     ImGui::Separator();
-    bool matched = false;
-    for (std::size_t i = 0; i < Fleet::locations.size(); ++i) {
-        const auto &location = Fleet::locations[i];
-        if (!matches_shelf(location.label, query)) {
-            continue;
+    if (!query.empty()) {
+        bool matched = false;
+        for (std::size_t i = 0; i < list.size(); ++i) {
+            if (matches_shelf(list[i].id.value, query)) {
+                matched = true;
+                location_row(i);
+            }
         }
-        matched = true;
-        if (ImGui::Selectable(location.label.data(), selected_ == i, 0, {0, 27.0F})) {
-            select(i);
+        if (!matched) {
+            ImGui::TextDisabled("No matching locations");
         }
-        const auto state = status(fleet.state(i));
-        ImGui::TextColored(state.color, "%s", state.text);
-        const auto history = fleet.history(i);
-        if (!history.empty() && history.front().report.needs_review()) {
-            ImGui::SameLine();
-            ImGui::TextColored(auditing, "Needs review");
+    } else {
+        for (std::size_t aisle = 0; aisle < audit::stockroom_aisles.size(); ++aisle) {
+            const auto summary = fleet.aisle_summary(aisle);
+            if (aisle == aisle_) {
+                ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+            }
+            if (!ImGui::TreeNode(audit::stockroom_aisles[aisle].data(), "%s  /  %zu of %zu",
+                                 audit::stockroom_aisles[aisle].data(), summary.complete,
+                                 summary.total)) {
+                continue;
+            }
+            for (std::size_t i = 0; i < list.size();) {
+                const auto &location = list[i];
+                if (location.aisle != aisle) {
+                    ++i;
+                } else if (location.waco == 0) {
+                    location_row(i++);
+                } else {
+                    const auto begin = i;
+                    std::size_t done = 0;
+                    while (i < list.size() && list[i].aisle == aisle &&
+                           list[i].shelf == location.shelf && list[i].waco != 0) {
+                        done += fleet.state(i) == ShelfState::complete ? 1U : 0U;
+                        ++i;
+                    }
+                    const auto shelf = location.id.value.substr(0, 6);
+                    if (location_ >= begin && location_ < i) {
+                        ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+                    }
+                    if (ImGui::TreeNode(shelf.c_str(), "J%02u   %zu/%zu Wacos", location.shelf,
+                                        done, i - begin)) {
+                        for (auto waco = begin; waco < i; ++waco) {
+                            location_row(waco);
+                        }
+                        ImGui::TreePop();
+                    }
+                }
+            }
+            ImGui::TreePop();
         }
-        ImGui::Spacing();
-    }
-    if (!matched) {
-        ImGui::TextDisabled("No matching shelves");
     }
     if (fleet.history_error()) {
-        ImGui::TextWrapped("Some shelf audits could not be read.");
+        ImGui::TextWrapped("Some location audits could not be read.");
     } else if (!fleet.durable()) {
         ImGui::TextDisabled("Temporary session");
     }
 }
-
 void FleetPanel::maintenance() {
     const auto &fleet = *get();
-    for (std::size_t i = 0; i < Fleet::locations.size(); ++i) {
+    for (std::size_t i = 0; i < Fleet::robot_count; ++i) {
         std::array<char, 32> label{};
-        std::snprintf(label.data(), label.size(), "Robot %zu  /  %s", i + 1,
-                      Fleet::locations[i].label.data());
+        std::snprintf(label.data(), label.size(), "Robot %zu", i + 1);
         if (ImGui::Selectable(label.data(), i == selected_, 0, {0, 26.0F})) {
             select(i);
         }
@@ -420,21 +521,28 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     if (!fleet) {
         return;
     }
-    const auto &location = Fleet::locations.at(selected_);
+    const auto &location = Fleet::locations()[location_];
     ImGui::PushFont(nullptr, 25.0F);
-    ImGui::TextUnformatted(location.label.data());
+    ImGui::TextUnformatted(location.id.value.c_str());
     ImGui::PopFont();
     ImGui::SameLine();
-    const auto state = status(fleet->state(selected_));
+    const auto state = status(fleet->state(location_));
     ImGui::TextColored(state.color, "%s", state.text);
-    ImGui::TextDisabled("Aisle %.3s  /  Shelf %.3s", location.label.data(),
-                        location.label.data() + 3);
-    const auto history = fleet->history(selected_);
+    if (location.waco != 0) {
+        ImGui::TextDisabled("Aisle %s / Shelf J%02u / Waco %02u",
+                            audit::stockroom_aisles[location.aisle].data(), location.shelf,
+                            location.waco);
+    } else {
+        ImGui::TextDisabled("Aisle %s / Shelf J%02u",
+                            audit::stockroom_aisles[location.aisle].data(), location.shelf);
+    }
+    const auto history = fleet->history(location_);
     if (history.empty()) {
         ImGui::TextDisabled("No completed audit");
-        ImGui::BeginDisabled(fleet->busy(selected_));
-        if (ImGui::Button("Start shelf audit")) {
-            static_cast<void>(fleet->queue(selected_));
+        ImGui::BeginDisabled(fleet->busy(selected_) ||
+                             fleet->state(location_) == ShelfState::auditing);
+        if (ImGui::Button("Start location audit")) {
+            static_cast<void>(fleet->queue(selected_, location_));
         }
         ImGui::EndDisabled();
         return;
@@ -524,6 +632,13 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     }
     if (!entry.report.unidentified.empty() && ImGui::TreeNode("Unidentified RFID tags")) {
         for (const auto &epc : entry.report.unidentified) {
+            ImGui::TextWrapped("%s", epc.value.c_str());
+        }
+        ImGui::TreePop();
+    }
+    if (!entry.report.unresolved.empty() && ImGui::TreeNode("Unresolved RFID reads")) {
+        ImGui::TextWrapped("Evidence did not isolate this location.");
+        for (const auto &epc : entry.report.unresolved) {
             ImGui::TextWrapped("%s", epc.value.c_str());
         }
         ImGui::TreePop();

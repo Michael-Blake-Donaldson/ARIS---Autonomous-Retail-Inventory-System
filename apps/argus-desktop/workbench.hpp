@@ -59,7 +59,8 @@ struct WorkResult {
 
 class Workbench {
   public:
-    explicit Workbench(std::optional<std::filesystem::path> directory = {}, bool paced = true);
+    explicit Workbench(std::optional<std::filesystem::path> directory = {}, bool paced = true,
+                       bool stockroom = false);
     ~Workbench();
     Workbench(const Workbench &) = delete;
     Workbench &operator=(const Workbench &) = delete;
@@ -71,7 +72,7 @@ class Workbench {
 
   private:
     void run(std::stop_token stop, const std::optional<std::filesystem::path> &directory,
-             bool paced);
+             bool paced, bool stockroom);
     void publish(WorkResult result);
 
     mutable std::mutex mutex_;

@@ -114,7 +114,7 @@ class Graphics {
 
     bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
               Recorder *recorder, std::optional<double> *scene_ms = nullptr,
-              std::optional<ProbePointer> input = {}) const {
+              std::optional<ProbePointer> input = {}, Scene *fleet_scene = nullptr) const {
         int width{};
         int height{};
         if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) {
@@ -163,8 +163,10 @@ class Graphics {
         auto camera = ui.camera;
         camera.mode = view_camera_mode(camera.mode, frame.archived);
         const auto scene_started = scene_ms ? SDL_GetPerformanceCounter() : 0;
-        scene.draw(viewport, frame, camera, overlays, regions, developer ? &*developer : nullptr,
-                   frame.archived || (!fleet_view && ui.map_only));
+        auto &active_scene = ui.panel == Panel::maintenance && fleet_scene ? *fleet_scene : scene;
+        active_scene.draw(viewport, frame, camera, overlays, regions,
+                          developer ? &*developer : nullptr,
+                          frame.archived || (!fleet_view && ui.map_only));
         if (scene_ms) {
             *scene_ms = static_cast<double>(SDL_GetPerformanceCounter() - scene_started) * 1000.0 /
                         static_cast<double>(SDL_GetPerformanceFrequency());
@@ -566,8 +568,9 @@ class FleetProbe {
             return false;
         }
         if (!reopen_ && !queued_ && !fleet->busy(0) && !fleet->busy(1)) {
-            if (fleet->state(0) != ShelfState::pending || fleet->state(1) != ShelfState::pending ||
-                !fleet->queue(0) || !fleet->queue(1)) {
+            if (fleet->state(whole_) != ShelfState::pending ||
+                fleet->state(waco_) != ShelfState::pending || !fleet->queue(0, whole_) ||
+                !fleet->queue(1, waco_)) {
                 std::cerr << "Fleet smoke requires a fresh data directory\n";
                 return false;
             }
@@ -580,12 +583,14 @@ class FleetProbe {
         if (reopen_) {
             return review_dashboard(ui, *fleet);
         }
-        if (fleet->state(0) != ShelfState::complete || fleet->state(1) != ShelfState::complete) {
+        if (fleet->state(whole_) != ShelfState::complete ||
+            fleet->state(waco_) != ShelfState::complete) {
             return std::nullopt;
         }
         if (ui.panel != Panel::locations) {
             ui.panel = Panel::locations;
             ui.fleet.select(0);
+            ui.fleet.select_location(whole_);
             return std::nullopt;
         }
         if (!rendered_) {
@@ -593,6 +598,7 @@ class FleetProbe {
         }
         if (ui.fleet.selected() == 0) {
             ui.fleet.select(1);
+            ui.fleet.select_location(waco_);
             return std::nullopt;
         }
         return summarize(*fleet);
@@ -633,7 +639,9 @@ class FleetProbe {
             return std::nullopt;
         }
         if (layout.horizontal_scroll) {
-            std::cerr << "Dashboard has horizontal overflow at 1280 x 720\n";
+            std::cerr << "Dashboard horizontal overflow at 1280 x 720 in panel "
+                      << static_cast<int>(ui.panel) << " at x=" << layout.overflow_position
+                      << " width=" << layout.overflow_width << '\n';
             return false;
         }
         if (recording_ && !pressed_ && SDL_GetTicks() < ready_after_) {
@@ -651,14 +659,16 @@ class FleetProbe {
             }
             break;
         case Review::open_audit:
-            if (ui.fleet.selected() == 1 && click(layout.open_audit)) {
+            if (ui.fleet.selected_location() == waco_ && click(layout.open_audit)) {
                 review_ = Review::inspect;
             }
             break;
         case Review::inspect:
-            if (pressed_ || (ui.panel == Panel::locations && ui.fleet.selected() == 1 &&
-                             layout.products == fleet.history(1).front().report.products.size() &&
-                             layout.products != 0)) {
+            if (pressed_ ||
+                (ui.panel == Panel::locations && ui.fleet.selected() == 1 &&
+                 !fleet.history(waco_).empty() &&
+                 layout.products == fleet.history(waco_).front().report.products.size() &&
+                 layout.products != 0)) {
                 if (click(layout.maintenance)) {
                     review_ = Review::queue_hold;
                 }
@@ -670,7 +680,7 @@ class FleetProbe {
                 if (!overlays.lidar || !overlays.trace) {
                     return false;
                 }
-                if (fleet.queue(1)) {
+                if (fleet.queue(1, waco_)) {
                     review_ = Review::watch_motion;
                 }
             }
@@ -697,8 +707,8 @@ class FleetProbe {
     }
 
     void observe_maintenance(Panels &ui, const Fleet &fleet) {
-        concurrent_ = concurrent_ || (fleet.state(0) == ShelfState::auditing &&
-                                      fleet.state(1) == ShelfState::auditing &&
+        concurrent_ = concurrent_ || (fleet.state(whole_) == ShelfState::auditing &&
+                                      fleet.state(waco_) == ShelfState::auditing &&
                                       fleet.frame(0).navigation && fleet.frame(1).navigation);
         if (ui.panel != Panel::maintenance) {
             return;
@@ -717,11 +727,11 @@ class FleetProbe {
     }
 
     [[nodiscard]] bool summarize(const Fleet &fleet) const {
-        if (fleet.history(0).empty() || fleet.history(1).empty()) {
+        if (fleet.history(whole_).empty() || fleet.history(waco_).empty()) {
             return false;
         }
-        const auto &soft = fleet.history(0).front();
-        const auto &tech = fleet.history(1).front();
+        const auto &soft = fleet.history(whole_).front();
+        const auto &tech = fleet.history(waco_).front();
         const auto &products = soft.report.products;
         const auto &tech_products = tech.report.products;
         const bool valid =
@@ -729,9 +739,10 @@ class FleetProbe {
             soft.audit.run != tech.audit.run && products.size() == 2 &&
             products[0].product.id.value == "990-01-0001" && products[0].observed > 0 &&
             products[1].product.id.value == "990-02-0001" && products[1].expected == 2 &&
-            products[1].observed == 0 && !tech_products.empty() &&
-            tech_products.back().product.id.value == "990-03-0001" &&
-            tech_products.back().observed > 0;
+            products[1].observed == 0 && tech_products.size() == 1 &&
+            (tech_products[0].observed == 1 || !tech.report.unresolved.empty()) &&
+            fleet.state(Fleet::find("A20J06-W02").value()) == ShelfState::pending &&
+            fleet.aisle_summary(1).total == 12 && fleet.aisle_summary(1).complete == 1;
         if (!valid ||
             (!reopen_ && (!concurrent_ || !std::ranges::all_of(maintenance_, std::identity{})))) {
             std::cerr << "Fleet probe did not observe the expected motion and audit evidence\n";
@@ -739,6 +750,9 @@ class FleetProbe {
         }
         auto &output = recording_ ? std::cerr : std::cout;
         output << "{\"fleetAudits\":true,\"photosLoaded\":true,\"zeroReadProduct\":true,"
+               << "\"mixedLocations\":true,\"auditableLocations\":" << Fleet::locations().size()
+               << ",\"wacoObserved\":" << tech_products[0].observed
+               << ",\"wacoUnresolved\":" << tech.report.unresolved.size() << ','
                << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
                              "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
                              "\"holdVisible\":true}"
@@ -757,7 +771,9 @@ class FleetProbe {
     Review review_{Review::zoom};
     std::optional<DashboardPoint> pressed_;
     std::optional<ProbePointer> input_;
-    std::array<bool, Fleet::locations.size()> maintenance_{};
+    const std::size_t whole_{Fleet::initial_location(0)};
+    const std::size_t waco_{Fleet::initial_location(1)};
+    std::array<bool, Fleet::robot_count> maintenance_{};
 };
 
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
@@ -767,12 +783,16 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         return Error::graphics_context;
     }
     Scene scene{engine->layout()};
+    std::optional<Scene> fleet_scene;
     Panels ui{engine, demo_scene, mode != Mode::smoke, operations_directory};
     const bool verification = fleet_probe(mode);
     Tour tour{verification ? Mode::interactive : mode, ui};
     if (verification || (mode == Mode::interactive && demo_scene)) {
         ui.fleet.open(operations_directory);
         ui.panel = Panel::fleet;
+        if (mode != Mode::fleet_smoke && verification) {
+            ui.fleet.select(1);
+        }
     }
     Controls controls;
     std::optional<Recorder> recorder;
@@ -882,12 +902,17 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             tour.graphics_rebuilt();
         }
         std::optional<double> scene_ms;
+        if (!fleet_scene && ui.fleet.get()) {
+            fleet_scene.emplace(ui.fleet.get()->layout());
+        }
         if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture,
                                          mode == Mode::interactive ? nullptr : &scene_ms,
-                                         probe ? probe->input() : std::nullopt)) {
+                                         probe ? probe->input() : std::nullopt,
+                                         fleet_scene ? &*fleet_scene : nullptr)) {
             hold();
             if (capture || !graphics.rebuild() ||
-                !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr)) {
+                !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr, nullptr, {},
+                               fleet_scene ? &*fleet_scene : nullptr)) {
                 return Error::graphics_present;
             }
         }

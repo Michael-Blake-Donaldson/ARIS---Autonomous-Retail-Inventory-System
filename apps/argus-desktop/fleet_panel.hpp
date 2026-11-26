@@ -16,6 +16,8 @@ struct DashboardLayout {
     std::optional<DashboardPoint> open_audit;
     std::optional<DashboardPoint> maintenance;
     bool horizontal_scroll{};
+    float overflow_position{};
+    float overflow_width{};
     bool shelf_ids{};
     bool hold_visible{};
     std::size_t products{};
@@ -36,14 +38,20 @@ class FleetPanel {
         return fleet_ && fleet_->ready() ? &*fleet_ : nullptr;
     }
     [[nodiscard]] std::size_t selected() const noexcept { return selected_; }
+    [[nodiscard]] std::size_t selected_location() const noexcept { return location_; }
     void select(std::size_t index) noexcept;
+    void select_location(std::size_t index);
 
   private:
     void robots(Panel &panel);
     void locations();
     void maintenance();
+    void select_aisle(std::size_t index);
+    void location_row(std::size_t index);
     std::optional<Fleet> fleet_;
     std::size_t selected_{};
+    std::size_t location_{};
+    std::size_t aisle_{};
     std::size_t history_index_{};
     std::size_t product_page_{};
     std::array<char, 24> shelf_filter_{};

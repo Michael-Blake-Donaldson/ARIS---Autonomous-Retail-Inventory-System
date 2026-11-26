@@ -1,22 +1,12 @@
 #include "fleet.hpp"
 
-#include "argus/simulation/fixtures.hpp"
-
-#include <nlohmann/json.hpp>
+#include <algorithm>
 
 namespace argus::desktop {
 namespace {
 
-std::unique_ptr<LiveEngine> start_robot(const ShelfLocation &location, std::size_t index) {
-    auto source = simulation::fixture_json("rfid-audit");
-    const auto *bytes = std::get_if<std::string_view>(&source);
-    if (!bytes) {
-        return {};
-    }
-    auto fixture = nlohmann::json::parse(*bytes);
-    fixture["robot"]["spawnMm"][0] = location.spawn_x_mm;
-    fixture["seed"] = fixture["seed"].get<std::uint32_t>() + index;
-    auto warehouse = simulation::Warehouse::from_json(fixture.dump());
+std::unique_ptr<LiveEngine> start_robot(std::size_t index) {
+    auto warehouse = audit::stockroom_world(RobotId{index + 1});
     auto *world = std::get_if<simulation::Warehouse>(&warehouse);
     if (!world) {
         return {};
@@ -28,52 +18,68 @@ std::unique_ptr<LiveEngine> start_robot(const ShelfLocation &location, std::size
 
 } // namespace
 
-Fleet::Fleet(const std::optional<std::filesystem::path> &directory) {
-    std::optional<mission::Store> store;
+std::span<const audit::StockLocation> Fleet::locations() { return audit::stockroom_locations(); }
+
+std::optional<std::size_t> Fleet::find(std::string_view id) {
+    const auto list = locations();
+    const auto found = std::ranges::find(
+        list, id, [](const auto &location) { return std::string_view{location.id.value}; });
+    return found == list.end() ? std::nullopt
+                               : std::optional{static_cast<std::size_t>(found - list.begin())};
+}
+
+std::size_t Fleet::initial_location(std::size_t robot) {
+    return find(robot == 0 ? "A10J05" : "A20J06-W01").value();
+}
+
+Fleet::Fleet(const std::optional<std::filesystem::path> &directory) : history_(locations().size()) {
     if (directory) {
         journal_ = *directory / "missions.db";
         auto opened = mission::Store::open(*journal_);
-        if (auto *value = std::get_if<mission::Store>(&opened)) {
-            store.emplace(std::move(*value));
+        if (auto *store = std::get_if<mission::Store>(&opened)) {
+            for (std::size_t i = 0; i < history_.size(); ++i) {
+                auto loaded = store->shelf_history(locations()[i].id);
+                auto *records = std::get_if<std::vector<mission::ShelfAudit>>(&loaded);
+                if (!records) {
+                    history_error_ = true;
+                    continue;
+                }
+                for (auto &saved : *records) {
+                    auto report = decode_shelf_report(saved.report);
+                    if (!report || saved.robot.value() == 0 || saved.robot.value() > robot_count ||
+                        saved.session == 0 || saved.run.value() == 0 || saved.completed_ms == 0) {
+                        history_error_ = true;
+                        continue;
+                    }
+                    history_[i].push_back({std::move(saved), std::move(*report)});
+                }
+            }
         } else {
             history_error_ = true;
         }
     }
     for (std::size_t i = 0; i < units_.size(); ++i) {
-        auto engine = start_robot(locations[i], i);
+        auto engine = start_robot(i);
         if (!engine) {
             return;
         }
+        if (!layout_) {
+            layout_ = engine->layout();
+        }
         units_[i] = std::make_unique<Unit>(std::move(engine));
-        if (!store) {
-            continue;
-        }
-        auto loaded = store->shelf_history(inventory::BinId{std::string{locations[i].label}});
-        auto *records = std::get_if<std::vector<mission::ShelfAudit>>(&loaded);
-        if (!records) {
-            history_error_ = true;
-            continue;
-        }
-        for (auto &saved : *records) {
-            auto report = decode_shelf_report(saved.report);
-            if (!report || saved.robot != RobotId{i + 1} || saved.session == 0 ||
-                saved.run.value() == 0 || saved.completed_ms == 0) {
-                history_error_ = true;
-                continue;
-            }
-            units_[i]->history.push_back({std::move(saved), std::move(*report)});
-        }
     }
 }
 
 bool Fleet::ready() const noexcept { return units_.back() != nullptr; }
 
-bool Fleet::queue(std::size_t index) {
-    auto &unit = *units_[index];
-    if (busy(index) || !unit.engine) {
+bool Fleet::queue(std::size_t robot, std::size_t location) {
+    if (!ready() || robot >= units_.size() || location >= history_.size() || busy(robot) ||
+        state(location) == ShelfState::auditing) {
         return false;
     }
+    auto &unit = *units_[robot];
     unit.pending = true;
+    unit.target = location;
     unit.status = "Audit queued";
     return true;
 }
@@ -117,27 +123,26 @@ void Fleet::receive(Unit &unit, std::size_t index) {
     if (result->shelf) {
         auto saved = std::move(*result->shelf);
         auto report = decode_shelf_report(saved.report);
-        if (!report || saved.location.value != locations[index].label ||
+        if (!report || !unit.target || saved.location != locations()[*unit.target].id ||
             saved.robot != RobotId{index + 1}) {
-            unit.status = "Shelf audit data unavailable";
+            unit.status = "Location audit data unavailable";
             return;
         }
-        if (unit.history.size() == mission::shelf_history_limit) {
-            unit.history.pop_back();
+        auto &history = history_[*unit.target];
+        if (history.size() == mission::shelf_history_limit) {
+            history.pop_back();
         }
-        unit.history.insert(unit.history.begin(), {std::move(saved), std::move(*report)});
+        history.insert(history.begin(), {std::move(saved), std::move(*report)});
     }
 }
 
 void Fleet::dispatch(Unit &unit, std::size_t index) {
     unit.pending = false;
     unit.preview = std::make_shared<ObservedFrame>(unit.engine->frame());
-    const auto &location = locations[index];
+    const auto &location = locations()[*unit.target];
     Job job{.kind = JobKind::shelf_audit,
-            .text = std::string{location.aisle},
             .live = std::move(unit.engine),
-            .shelf = ShelfAssignment{inventory::BinId{std::string{location.label}},
-                                     RobotId{index + 1}, unit.preview->run, journal_}};
+            .shelf = ShelfAssignment{location.id, RobotId{index + 1}, unit.preview->run, journal_}};
     if (unit.workbench.submit(std::move(job))) {
         unit.status = "Auditing shelf";
     } else {
@@ -160,27 +165,46 @@ void Fleet::hold() {
     }
 }
 
-LiveFrame Fleet::frame(std::size_t index) const noexcept {
-    const auto &unit = *units_[index];
+LiveFrame Fleet::frame(std::size_t robot) const noexcept {
+    const auto &unit = *units_[robot];
     return unit.engine ? unit.engine->frame() : unit.preview->view();
 }
 
-ShelfState Fleet::state(std::size_t index) const noexcept {
-    const auto &unit = *units_[index];
-    return unit.pending || !unit.engine ? ShelfState::auditing
-           : unit.history.empty()       ? ShelfState::pending
-                                        : ShelfState::complete;
+ShelfState Fleet::state(std::size_t location) const noexcept {
+    if (std::ranges::any_of(units_, [&](const auto &unit) {
+            return unit && unit->target == location && (unit->pending || !unit->engine);
+        })) {
+        return ShelfState::auditing;
+    }
+    return history_[location].empty() ? ShelfState::pending : ShelfState::complete;
 }
 
-bool Fleet::busy(std::size_t index) const {
-    const auto &unit = *units_[index];
+bool Fleet::busy(std::size_t robot) const {
+    const auto &unit = *units_[robot];
     return unit.pending || !unit.engine || unit.workbench.busy();
 }
 
-std::span<const ShelfEntry> Fleet::history(std::size_t index) const noexcept {
-    return units_[index]->history;
+std::span<const ShelfEntry> Fleet::history(std::size_t location) const noexcept {
+    return history_[location];
 }
 
-std::string_view Fleet::status(std::size_t index) const noexcept { return units_[index]->status; }
+std::optional<std::size_t> Fleet::assignment(std::size_t robot) const noexcept {
+    return units_[robot]->target;
+}
+
+AisleSummary Fleet::aisle_summary(std::size_t aisle) const noexcept {
+    AisleSummary summary;
+    for (std::size_t i = 0; i < history_.size(); ++i) {
+        if (locations()[i].aisle == aisle) {
+            ++summary.total;
+            summary.complete += state(i) == ShelfState::complete ? 1U : 0U;
+            summary.review +=
+                !history_[i].empty() && history_[i].front().report.needs_review() ? 1U : 0U;
+        }
+    }
+    return summary;
+}
+
+std::string_view Fleet::status(std::size_t robot) const noexcept { return units_[robot]->status; }
 
 } // namespace argus::desktop

@@ -1,5 +1,6 @@
 #include "live_engine.hpp"
 
+#include "argus/audit/stockroom.hpp"
 #include "map_run.hpp"
 
 #include <algorithm>
@@ -58,7 +59,9 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
     }
     simulation::MotionConfig motion;
     if (shared_demo) {
-        motion.encoder_step_m = 0.0001;
+        motion.encoder_step_m = declared.scenario_id == audit::stockroom_scenario
+                                    ? audit::stockroom_encoder_step_m
+                                    : 0.0001;
     }
     auto robot = simulation::RobotSimulation::create(
         warehouse, start_tick, motion, {},
@@ -66,7 +69,9 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
     if (const auto *error = std::get_if<simulation::RobotError>(&robot)) {
         return app::Failure{*error};
     }
-    simulation::SensorConfig config;
+    auto config = declared.scenario_id == audit::stockroom_scenario
+                      ? audit::stockroom_sensor_config()
+                      : simulation::SensorConfig{};
     if (shared_demo) {
         config.rfid.range_m = 3.5;
     }

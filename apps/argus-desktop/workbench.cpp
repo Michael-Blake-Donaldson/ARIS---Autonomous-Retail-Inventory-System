@@ -1,5 +1,6 @@
 #include "workbench.hpp"
 
+#include "argus/audit/stockroom.hpp"
 #include "argus/mission/simulation.hpp"
 #include "fleet_report.hpp"
 #include "operations_fixture.hpp"
@@ -82,6 +83,46 @@ std::optional<nlohmann::json> archive_report(const mission::SavedRun &saved,
     return report;
 }
 
+ShelfReport location_report(const inventory::BinId &bin, const audit::LocationSurvey &evidence) {
+    const auto &catalog = audit::stockroom_catalog();
+    std::map<std::string_view, ShelfProduct, std::less<>> index;
+    const auto row = [&](const inventory::Dpci &id) -> ShelfProduct & {
+        const auto product = std::ranges::find(catalog.products, id, &inventory::Product::id);
+        if (product == catalog.products.end()) {
+            throw std::string{"Missing catalog product"};
+        }
+        return index.try_emplace(product->id.value, ShelfProduct{*product, 0, 0, {}}).first->second;
+    };
+    for (const auto &stock : catalog.stock) {
+        if (stock.bin == bin) {
+            row(stock.product).expected += stock.quantity;
+        }
+    }
+    for (const auto &unit : catalog.units) {
+        if (unit.assigned_bin == bin &&
+            std::ranges::find(evidence.observed, unit.epc) == evidence.observed.end()) {
+            row(unit.product).tags.push_back({unit.epc, false});
+        }
+    }
+    ShelfReport report;
+    for (const auto &epc : evidence.observed) {
+        const auto unit = std::ranges::find(catalog.units, epc, &inventory::Unit::epc);
+        if (unit == catalog.units.end()) {
+            report.unidentified.push_back(epc);
+        } else {
+            auto &product = row(unit->product);
+            ++product.observed;
+            product.tags.push_back({epc, true});
+        }
+    }
+    for (auto &[id, product] : index) {
+        static_cast<void>(id);
+        report.products.push_back(std::move(product));
+    }
+    report.unresolved = evidence.unresolved;
+    return report;
+}
+
 WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &missions,
                    std::uint64_t &sequence, simulation::ObservedRun *live) {
     WorkResult result{.kind = job.kind};
@@ -122,33 +163,30 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
         if (!live || !job.shelf) {
             throw std::string{"Shelf audit requires a live robot"};
         }
-        const audit::AuditAisle scope{inventory::AisleId{job.text}};
-        auto report = checked(audit::run_shelf(catalog, scope, inventory::SessionId{next_id()},
-                                               job.shelf->robot, *live));
-        if (report.visits.size() != 2 || std::ranges::any_of(report.visits, [](const auto &visit) {
-                return visit.frames < audit::min_coverage_frames;
-            })) {
-            throw std::string{"Shelf coverage incomplete. Retry the audit."};
+        const auto session = inventory::SessionId{next_id()};
+        const auto locations = audit::stockroom_locations();
+        const auto location =
+            std::ranges::find(locations, job.shelf->location, &audit::StockLocation::id);
+        if (location == locations.end()) {
+            throw std::string{"Unknown stockroom location"};
         }
-        std::vector<inventory::Product> products;
-        for (const auto &quantity : report.quantities) {
-            products.push_back(checked(catalog.find(quantity.product)).product);
-        }
-        const auto detail = make_shelf_report(report, products);
-        if (!detail) {
-            throw std::string{"Shelf audit product records are incomplete"};
+        const auto survey =
+            audit::survey_location(catalog, *location, session, job.shelf->robot, *live);
+        const auto *evidence = std::get_if<audit::LocationSurvey>(&survey);
+        if (!evidence) {
+            throw std::string{"Location coverage incomplete. Retry the audit."};
         }
         const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
-        auto encoded = encode_shelf_report(*detail);
+        auto encoded = encode_shelf_report(location_report(location->id, *evidence));
         if (millis <= 0 || !decode_shelf_report(encoded)) {
             throw std::string{"Shelf audit exceeds its review limits"};
         }
         mission::ShelfAudit saved{job.shelf->location,
                                   job.shelf->robot,
                                   job.shelf->run,
-                                  report.session.value(),
+                                  session.value(),
                                   static_cast<std::uint64_t>(millis),
                                   std::move(encoded)};
         if (job.shelf->journal) {
@@ -228,9 +266,9 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
 
 } // namespace
 
-Workbench::Workbench(std::optional<std::filesystem::path> directory, bool paced)
-    : worker_{[this, directory = std::move(directory), paced](std::stop_token stop) {
-          run(stop, directory, paced);
+Workbench::Workbench(std::optional<std::filesystem::path> directory, bool paced, bool stockroom)
+    : worker_{[this, directory = std::move(directory), paced, stockroom](std::stop_token stop) {
+          run(stop, directory, paced, stockroom);
       }} {}
 
 Workbench::~Workbench() {
@@ -283,7 +321,7 @@ void Workbench::publish(WorkResult result) {
 }
 
 void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::path> &directory,
-                    bool paced) {
+                    bool paced, bool stockroom) {
     try {
         std::optional<Sandbox> sandbox;
         if (!directory) {
@@ -297,8 +335,11 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
         auto catalog = checked(inventory::Repository::open(file));
         auto store = checked(mission::Store::open(root / "missions.db"));
         if (seed_catalog) {
-            checked(catalog.insert_catalog(
-                checked(inventory::parse_catalog(catalog_fixture, inventory::Format::csv))));
+            const auto demo =
+                stockroom
+                    ? audit::stockroom_catalog()
+                    : checked(inventory::parse_catalog(catalog_fixture, inventory::Format::csv));
+            checked(catalog.insert_catalog(demo));
         }
         auto sequence = std::max(checked(catalog.last_session()), checked(store.highest_id()));
         while (!stop.stop_requested()) {
