@@ -58,3 +58,13 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Track labeled shelves | Show aisle and shelf identifiers such as A10J05. Display pending, in-progress and complete in red, amber and green with text. Show discrepancy status independently. |
 | Reviewer | Read every product on a finished audit | Open a completed shelf to see its saved product list, photos, DPCIs, names, expected and observed quantities, and expandable EPCs. Include expected stock with zero reads and provide a discrepancy filter. |
 | Reviewer | Exercise durable independent runs | Start audits with two robots against distinct shelves, observe both progress, then restart and reopen each report with its robot identity and Product details. |
+
+## Phase 18 operator dashboard polish
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Track the fleet on one map | Show both observed robot estimates, selectable shelf labels and the selected robot's route on one warehouse map. Show aisle labels at the overview scale and shelf IDs when zoomed in. |
+| Operator | Review a completed shelf quickly | Open a completed shelf's audit from Fleet in at most two clicks. Preserve the selected robot and shelf across Fleet, Location Audits and Robot Maintenance. |
+| Operator | Find products and discrepancies | Search shelf IDs, open a completed audit, and compare organized product photos, names, DPCIs and quantities. Expand RFID tags and earlier audits on demand. |
+| Maintainer | Identify a hold and investigate | Surface the hold and its reason in Fleet. Keep the selected robot's original LiDAR rays and motion trail, scan age and localization status in a dedicated maintenance view. |
+| Reviewer | Verify the compact desktop layout | At 1280 × 720 all three views fit their data without horizontal scrolling. Exercise the native workflow without disturbing existing single-robot entry points. |
