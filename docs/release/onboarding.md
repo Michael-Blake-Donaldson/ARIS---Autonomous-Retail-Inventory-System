@@ -27,7 +27,7 @@ The persistent desktop uses `catalog.db` and `missions.db` inside that directory
 
 ## Drive, map, and explore
 
-1. Open the desktop and select **Overview** from Fleet. Hold Space and use the arrow keys to drive. Release Space to brake.
+1. Open the desktop, expand **Single robot** in Fleet and select **Overview**. Hold Space and use the arrow keys to drive. Release Space to brake.
 2. Use F4 to show LiDAR, F5 for estimated occupancy, and **Explore** for observation-driven navigation.
 3. Use F3 and the labeled Diagnostics checkbox to see simulator truth briefly. Return to Overview for the operational view.
 4. For a custom scenario, copy `examples/warehouse/small-backroom.json` to your data directory and change its positive `scenarioId`. The schema and limits are in [Warehouse scenarios](../warehouse.md).

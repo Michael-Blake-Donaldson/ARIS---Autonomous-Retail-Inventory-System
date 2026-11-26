@@ -6,7 +6,7 @@ The Windows `argus-desktop` executable opens the SDL3/OpenGL operations center. 
 out\build\windows-release\argus-desktop.exe --warehouse rfid-audit
 ```
 
-The default RFID stockroom opens to **Fleet**. Select **Overview** to use the original manual robot. Hold Space and use the arrow keys to drive. Release Space to brake. X latches the manual robot's emergency stop and holds fleet audits. R clears the manual stop when Space is released. Home restarts the manual run with Space released and the latch clear. Escape closes the window. The Explore button starts observation-driven frontier navigation. The brake is applied on loss of focus, minimization, stall, or graphics recreation.
+The default RFID stockroom opens to **Fleet**. Expand **Single robot** and select **Overview** to drive the original manual robot. Hold Space and use the arrow keys to drive. Release Space to brake. X latches the manual robot's emergency stop and holds fleet audits. R clears the manual stop when Space is released. Home restarts the manual run with Space released and the latch clear. Escape closes the window. The Explore button starts observation-driven frontier navigation. The brake is applied on loss of focus, minimization, stall, or graphics recreation.
 
 Select Orbit, Top-down, or Follow with the camera buttons or keys 1, 2, and 3. Right-drag over the warehouse to orbit and scroll to zoom. Keyboard navigation is enabled for the panels. F4 toggles measured LiDAR. F5 opens the estimated map without authored meshes. F3 opens Diagnostics, where enabling the developer checkbox reveals the explicitly labeled simulated truth overlay. Returning to any other panel hides it.
 
@@ -30,10 +30,10 @@ Other warehouses support live driving and mapping. The bundled RFID stockroom su
 
 ## Run a two-robot shelf audit
 
-1. Open **Fleet**. Select Robot 1 and choose **Audit assigned shelf** for `A10J05`. Select Robot 2 and start `A20J05`. You can keep both audits running while changing views.
-2. Open **Robot Maintenance** and select either robot. The original LiDAR ray and motion-trail colors are used here. Check the scan age, localization bounds and navigation reason. Use **Hold fleet** to interrupt active audits. Losing focus also holds them.
-3. Open **Location Audits**. A shelf is **Pending** before its first audit, **In progress** while a new survey runs, and **Complete** after both assigned views meet the observation threshold and the report is accepted. **Needs review** flags count discrepancies or unidentified RFID evidence separately from completion.
-4. Select a completed shelf to see its product rows in DPCI order, including expected products with zero observed tags. Expand **RFID tags** for individual EPCs or filter the product list to discrepancies. Use **Older** and **Newer** when multiple audits exist.
+1. In **Fleet**, select a robot or its shelf label on the map. Select Robot 1 and choose **Start shelf audit** for `A10J05`, then start Robot 2 for `A20J05`. Both audits can continue while you change views.
+2. Use **+** or the mouse wheel to zoom from aisle labels to full shelf IDs. Right-drag to pan and use **Fit map** to reset. If a robot holds, Fleet lists the reason beside it. Choose **Inspect robot** to keep that robot selected in **Robot Maintenance**, where the original LiDAR rays and motion trail stay visible. Expand **Sensor details** for counts and localization bounds. **Hold fleet** interrupts active audits. Losing focus also holds them.
+3. Click a completed shelf's map label, then **Open audit**. You can also search by shelf ID in **Location Audits**. A shelf becomes **Complete** once both views meet the observation threshold and the report is accepted. **Needs review** flags discrepancies or unidentified evidence independently.
+4. Compare product photos, names, DPCIs, and expected and observed quantities. The table includes expected products with zero observed tags. Use **Discrepancies only**, expand **RFID tags**, or open an earlier report under **Audit history**.
 
 To retain shelf audits across launches, use the same existing `--operations-data DIRECTORY` each time. Otherwise Location Audits uses temporary session history. The last 20 completed audits for each shelf are retained. [Model and storage decisions](decisions/0016-fleet-shelf-audits.md)
 
@@ -61,7 +61,7 @@ Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonom
 
 On an interactive test host, pass an existing disposable directory to `--ui-smoke DIRECTORY` and then run `--ui-reopen DIRECTORY` in a second process to verify a durable archive.
 
-Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The CTest entry `argus-desktop.fleet` runs the same two-process check when native tests are enabled.
+Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. The CTest entry `argus-desktop.fleet` runs both commands when native tests are enabled.
 
 `--ui-record` writes the native app framebuffer as bottom-up 1280 × 720 RGB24 at 20 frames per second. The workflow summary goes to stderr. Encode it from a binary-safe Command Prompt pipeline.
 
