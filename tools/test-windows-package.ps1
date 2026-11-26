@@ -51,7 +51,15 @@ function Remove-TestFolder([string]$Folder) {
         ($resolved -ne $workspace -and !$resolved.StartsWith("$workspace\", [StringComparison]::OrdinalIgnoreCase))) {
         throw 'Refusing to remove a directory outside the isolated test workspace.'
     }
-    Remove-Item -LiteralPath $resolved -Recurse -Force
+    for ($attempt = 1; $attempt -le 12; ++$attempt) {
+        try {
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+            return
+        } catch [System.IO.IOException] {
+            if ($attempt -eq 12) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
 }
 
 function Assert-Package([bool]$Condition, [string]$Message) {
