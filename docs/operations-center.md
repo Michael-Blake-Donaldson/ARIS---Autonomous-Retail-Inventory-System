@@ -63,6 +63,8 @@ On an interactive test host, pass an existing disposable directory to `--ui-smok
 
 Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. The CTest entry `argus-desktop.fleet` runs both commands when native tests are enabled.
 
+Use `--ui-dashboard-record DIRECTORY` with the same disposable data to record the three dashboard views during the scripted review. It uses the framebuffer and stderr format below.
+
 `--ui-record` writes the native app framebuffer as bottom-up 1280 × 720 RGB24 at 20 frames per second. The workflow summary goes to stderr. Encode it from a binary-safe Command Prompt pipeline.
 
 ```bat

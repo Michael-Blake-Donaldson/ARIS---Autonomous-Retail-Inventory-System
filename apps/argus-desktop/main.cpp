@@ -25,9 +25,22 @@ using namespace argus;
 using namespace argus::desktop;
 using app::Error;
 
-enum class Mode { interactive, smoke, tour, record, reopen, fleet_smoke, fleet_reopen };
+enum class Mode {
+    interactive,
+    smoke,
+    tour,
+    record,
+    reopen,
+    fleet_smoke,
+    fleet_reopen,
+    dashboard_record
+};
 bool fleet_probe(Mode mode) noexcept {
-    return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen;
+    return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen ||
+           mode == Mode::dashboard_record;
+}
+bool captures_video(Mode mode) noexcept {
+    return mode == Mode::record || mode == Mode::dashboard_record;
 }
 struct ProbePointer {
     DashboardPoint point;
@@ -536,7 +549,8 @@ class Tour {
 
 class FleetProbe {
   public:
-    explicit FleetProbe(Mode mode) : reopen_{mode == Mode::fleet_reopen} {}
+    explicit FleetProbe(Mode mode)
+        : reopen_{mode != Mode::fleet_smoke}, recording_{mode == Mode::dashboard_record} {}
 
     [[nodiscard]] std::optional<bool> advance(Panels &ui, bool photos_ready) {
         input_.reset();
@@ -588,12 +602,21 @@ class FleetProbe {
     [[nodiscard]] std::optional<ProbePointer> input() const noexcept { return input_; }
 
   private:
-    enum class Review { zoom, select_shelf, open_audit, inspect, queue_hold, wait_for_hold };
+    enum class Review {
+        zoom,
+        select_shelf,
+        open_audit,
+        inspect,
+        queue_hold,
+        watch_motion,
+        wait_for_hold
+    };
 
     bool click(std::optional<DashboardPoint> desired) {
         if (pressed_) {
             input_ = ProbePointer{*pressed_, false};
             pressed_.reset();
+            ready_after_ = SDL_GetTicks() + 1100;
             return true;
         }
         if (desired) {
@@ -612,6 +635,9 @@ class FleetProbe {
         if (layout.horizontal_scroll) {
             std::cerr << "Dashboard has horizontal overflow at 1280 x 720\n";
             return false;
+        }
+        if (recording_ && !pressed_ && SDL_GetTicks() < ready_after_) {
+            return std::nullopt;
         }
         switch (review_) {
         case Review::zoom:
@@ -645,11 +671,19 @@ class FleetProbe {
                     return false;
                 }
                 if (fleet.queue(1)) {
-                    ui.panel = Panel::fleet;
-                    review_ = Review::wait_for_hold;
+                    review_ = Review::watch_motion;
                 }
             }
             break;
+        case Review::watch_motion: {
+            const auto frame = fleet.frame(1);
+            if (!recording_ ||
+                (frame.trace.size() > 5 && frame.map.scan == ScanState::fresh && frame.lidar)) {
+                ui.panel = Panel::fleet;
+                review_ = Review::wait_for_hold;
+            }
+            break;
+        }
         case Review::wait_for_hold:
             if (fleet.status(1) == "Auditing shelf" && fleet.frame(1).navigation) {
                 fleet.hold();
@@ -703,17 +737,20 @@ class FleetProbe {
             std::cerr << "Fleet probe did not observe the expected motion and audit evidence\n";
             return false;
         }
-        std::cout << "{\"fleetAudits\":true,\"photosLoaded\":true,\"zeroReadProduct\":true,"
-                  << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
-                                "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
-                                "\"holdVisible\":true}"
-                              : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
-                  << '\n';
+        auto &output = recording_ ? std::cerr : std::cout;
+        output << "{\"fleetAudits\":true,\"photosLoaded\":true,\"zeroReadProduct\":true,"
+               << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
+                             "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
+                             "\"holdVisible\":true}"
+                           : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
+               << '\n';
         return true;
     }
 
     bool reopen_;
+    bool recording_;
     Uint64 started_{SDL_GetTicks()};
+    Uint64 ready_after_{started_ + 1100};
     bool queued_{};
     bool concurrent_{};
     bool rendered_{};
@@ -739,7 +776,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     }
     Controls controls;
     std::optional<Recorder> recorder;
-    if (mode == Mode::record) {
+    if (captures_video(mode)) {
         recorder.emplace();
     }
     auto *capture = recorder ? &*recorder : nullptr;
@@ -900,7 +937,7 @@ app::Status desktop(const app::Options &options, Mode mode) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     const auto flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
-    const bool recording = mode == Mode::record;
+    const bool recording = captures_video(mode);
     if (recording && !app::use_binary_mode(stdout)) {
         return Error::output_failure;
     }
@@ -927,14 +964,17 @@ app::Status verify_fleet(const app::Options &options) {
 app::Status reopen_fleet(const app::Options &options) {
     return desktop(options, Mode::fleet_reopen);
 }
+app::Status record_dashboard(const app::Options &options) {
+    return desktop(options, Mode::dashboard_record);
+}
 
 } // namespace
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 &&
-        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
-         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen")) {
+    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
+                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
+                      option == "--ui-fleet-reopen" || option == "--ui-dashboard-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             return 2;
@@ -944,11 +984,12 @@ int main(int argc, char **argv) {
         } catch (const std::exception &) {
             return 2;
         }
-        const auto entry = option == "--ui-smoke"          ? smoke
-                           : option == "--ui-reopen"       ? reopen
-                           : option == "--ui-fleet-smoke"  ? verify_fleet
-                           : option == "--ui-fleet-reopen" ? reopen_fleet
-                                                           : interactive;
+        const auto entry = option == "--ui-smoke"              ? smoke
+                           : option == "--ui-reopen"           ? reopen
+                           : option == "--ui-fleet-smoke"      ? verify_fleet
+                           : option == "--ui-fleet-reopen"     ? reopen_fleet
+                           : option == "--ui-dashboard-record" ? record_dashboard
+                                                               : interactive;
         return app::run_application(1, argv, "argus-desktop", entry);
     }
     if (argc == 2 && std::string_view{argv[1]} == "--ui-smoke") {
