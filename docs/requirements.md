@@ -48,3 +48,13 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Follow a single stockroom run | Show observed mapping, a LiDAR dropout hold and recovery, product investigation, aisle audit, routed missions and saved-run review. |
 | Reviewer | Reproduce the handoff from the portable package | Verify the ZIP and test receipt. Run the native tour from the extraction, replace the program, reopen the original desktop evidence in a fresh process and confirm removal preserves the data. |
 | Reviewer | Inspect the demonstration and its limits | Provide a native recording and walkthrough, link to measured performance and disclose simulation, signing and host verification limits. |
+
+## Phase 17 fleet and location audits
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Inspect two simulated robots | Show each robot's task, battery and status. Selecting a robot highlights its observed route and assigned location. |
+| Maintainer | Inspect a robot during motion | Use a dedicated maintenance screen with the original full-brightness LiDAR rays and motion trail, scan age, localization state and navigation hold reason. |
+| Operator | Track labeled shelves | Show aisle and shelf identifiers such as A10J05. Display pending, in-progress and complete in red, amber and green with text. Show discrepancy status independently. |
+| Reviewer | Read every product on a finished audit | Open a completed shelf to see its saved product list, photos, DPCIs, names, expected and observed quantities, and expandable EPCs. Include expected stock with zero reads and provide a discrepancy filter. |
+| Reviewer | Exercise durable independent runs | Start audits with two robots against distinct shelves, observe both progress, then restart and reopen each report with its robot identity and Product details. |
