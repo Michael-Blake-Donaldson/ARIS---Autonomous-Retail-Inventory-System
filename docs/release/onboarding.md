@@ -27,7 +27,7 @@ The persistent desktop uses `catalog.db` and `missions.db` inside that directory
 
 ## Drive, map, and explore
 
-1. Open the desktop. Hold Space and use the arrow keys to drive. Release Space to brake.
+1. Open the desktop and select **Overview** from Fleet. Hold Space and use the arrow keys to drive. Release Space to brake.
 2. Use F4 to show LiDAR, F5 for estimated occupancy, and **Explore** for observation-driven navigation.
 3. Use F3 and the labeled Diagnostics checkbox to see simulator truth briefly. Return to Overview for the operational view.
 4. For a custom scenario, copy `examples/warehouse/small-backroom.json` to your data directory and change its positive `scenarioId`. The schema and limits are in [Warehouse scenarios](../warehouse.md).
@@ -45,6 +45,8 @@ bin\argus-headless.exe --warehouse small-backroom --map-stdin < "%LOCALAPPDATA%\
 A matching warehouse fixture and cell size are required on map import. Each loaded version 2 snapshot verifies its internal SHA-256. A digest obtained independently can pin the export with `--map-sha256`. [Map format and pinning](../mapping.md)
 
 ## Search, audit, and reopen
+
+For shelf-level audits, start both assigned shelves from **Fleet**, monitor sensors in **Robot Maintenance**, and review product-level results in **Location Audits**. Use the same `--operations-data` directory when you restart to reopen those reports. [Two-robot walkthrough](../operations-center.md#run-a-two-robot-shelf-audit)
 
 In the default `rfid-audit` stockroom, Explore, product investigation, audit and routed missions share the same robot and map. Use **Find Product** for fictional DPCI `990-01-0001`, **Inventory Audit** to audit `SOFTLINES`, and **Missions** to scan aisles or return to dock. The audit shows expected quantities, unique observed EPCs and findings for human review.
 

@@ -58,7 +58,7 @@ out\build\windows-debug\argus-headless.exe --scenario-stdin --tick 40 < scenario
 
 These examples use Command Prompt redirection. On Linux, use `out/build/linux-ci/argus-headless` with the same flags. The built-in warehouse names are `small-backroom`, `cluttered-receiving`, `broad-stockroom`, and `rfid-audit`. Omitting `--tick` starts at zero. Headless warehouse runs emit one JSON snapshot to stdout. An explicit fixture export includes the authored fictional placements.
 
-The desktop requires an interactive Windows session with OpenGL support. It defaults to `rfid-audit` and advances the simulator every 50 ms. Hold Space and use the arrow keys to drive, or select Explore for autonomous navigation. Release Space to brake, press X for a latched emergency stop, and press R with Space released to clear it. F4 toggles LiDAR, F5 opens the estimated occupancy view, and F3 opens Diagnostics. See the [operations center guide](docs/operations-center.md) for the cameras, inventory views, mission workbench, and recording commands.
+The desktop requires an interactive Windows session with OpenGL support. The default `rfid-audit` stockroom opens to Fleet for two simulated shelf audits. Robot Maintenance shows each robot's full-brightness LiDAR rays and motion trail. Select Overview for the existing manual and Explore controls. The simulator uses 50 ms steps. [Operations center guide](docs/operations-center.md)
 
 Use `--drive-steps N` with a warehouse to run 1–2,000 straight-drive steps. Headless output includes odometry, commanded and measured velocities, battery and collision status. In the desktop, the same flag runs the probe before manual control begins.
 
