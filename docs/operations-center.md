@@ -8,7 +8,7 @@ out\build\windows-release\argus-desktop.exe --warehouse rfid-audit
 
 The default RFID stockroom opens to **Fleet**. Expand **Single robot** and select **Overview** to drive the original manual robot. Hold Space and use the arrow keys to drive. Release Space to brake. X latches the manual robot's emergency stop and holds fleet audits. R clears the manual stop when Space is released. Home restarts the manual run with Space released and the latch clear. Escape closes the window. The Explore button starts observation-driven frontier navigation. The brake is applied on loss of focus, minimization, stall, or graphics recreation.
 
-Select Orbit, Top-down, or Follow with the camera buttons or keys 1, 2, and 3. Right-drag over the warehouse to orbit and scroll to zoom. Keyboard navigation is enabled for the panels. F4 toggles measured LiDAR. F5 opens the estimated map without authored meshes. F3 opens Diagnostics, where enabling the developer checkbox reveals the explicitly labeled simulated truth overlay. Returning to any other panel hides it.
+In 3D views, select Orbit, Top-down, or Follow with the camera buttons or keys 1, 2, and 3. Right-drag to orbit and scroll to zoom. Keyboard navigation is enabled for the panels. F4 toggles measured LiDAR in single-robot views. F5 opens the estimated map without authored meshes. F3 opens Diagnostics, where enabling the developer checkbox reveals the explicitly labeled simulated truth overlay. Returning to any other panel hides it.
 
 | View | Workflow |
 | --- | --- |

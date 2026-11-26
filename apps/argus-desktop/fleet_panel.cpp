@@ -167,7 +167,7 @@ void FleetPanel::robots(Panel &panel) {
         ImGui::Spacing();
     }
     ImGui::Separator();
-    const auto &location = Fleet::locations[selected_];
+    const auto &location = Fleet::locations.at(selected_);
     ImGui::TextColored(accent, "%s", location.label.data());
     ImGui::SameLine();
     const auto state = status(fleet.state(selected_));
@@ -420,7 +420,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     if (!fleet) {
         return;
     }
-    const auto &location = Fleet::locations[selected_];
+    const auto &location = Fleet::locations.at(selected_);
     ImGui::PushFont(nullptr, 25.0F);
     ImGui::TextUnformatted(location.label.data());
     ImGui::PopFont();
