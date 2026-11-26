@@ -12,6 +12,8 @@
 
 namespace argus::desktop {
 
+[[nodiscard]] const char *journal_error_message(mission::Error error) noexcept;
+
 enum class JobKind {
     catalog,
     lookup,

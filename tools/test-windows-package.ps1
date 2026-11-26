@@ -41,6 +41,7 @@ $data = Join-Path $workspace 'Operator data'
 $desktopData = Join-Path $workspace 'Desktop run'
 $fleetData = Join-Path $workspace 'Fleet reports'
 $trafficData = Join-Path $workspace 'Shared aisle'
+$faultData = Join-Path $workspace 'Damaged fleet data'
 $first = Join-Path $workspace 'Program files'
 $replacement = Join-Path $workspace 'Updated program files'
 $deny = Join-Path $workspace 'Read only'
@@ -124,6 +125,7 @@ try {
         ConvertFrom-Json
     $authored.scenarioId = 1201
     $authored | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $scenario -Encoding utf8
+    $null = Invoke-Portable 'argus-desktop' @('--operations-data', $scenario) -Exit 2
     $robot = Invoke-Portable 'argus-headless' @('--scenario-stdin', '--drive-steps', '220') -InputFile $scenario |
         ConvertFrom-Json
     Assert-Package ($robot.scenarioId -eq 1201 -and $robot.robot.odometry.xM -gt 13 -and
@@ -189,6 +191,7 @@ try {
     $review = $null
     $reviewReopen = $null
     $traffic = $null
+    $dataFault = $null
     if ($NativeUi) {
         [void][IO.Directory]::CreateDirectory($desktopData)
         $ui = Invoke-Portable 'argus-desktop' @('--ui-smoke', $desktopData) | ConvertFrom-Json
@@ -223,10 +226,18 @@ try {
         Assert-Package $uiReopen.savedRunReopenedAfterRestart 'Portable replacement did not reopen the saved desktop run.'
         $fleetReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-reopen', $fleetData) | ConvertFrom-Json
         Assert-Package ($fleetReopen.reopenedAfterRestart -and $fleetReopen.dashboard1280x720 -and
-            $fleetReopen.returnedToBerth -and $fleetReopen.auditSavedAfterHold) 'Portable replacement could not recover the fleet and preserve audit evidence through an interrupted return.'
+            $fleetReopen.returnedToBerth -and $fleetReopen.auditSavedAfterHold -and
+            $fleetReopen.focusLossHeldFleet) 'Portable replacement could not recover the fleet and preserve audit evidence through an interrupted return.'
         $reviewReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-review-reopen', $fleetData) | ConvertFrom-Json
         Assert-Package ($reviewReopen.reopened -and $reviewReopen.reviewed -and $reviewReopen.recheckLinked -and
             $reviewReopen.comparisonVisible) 'Portable replacement could not reopen the reviewed report and re-audit.'
+        [void][IO.Directory]::CreateDirectory($faultData)
+        $damaged = Join-Path $faultData 'missions.db'
+        [IO.File]::WriteAllText($damaged, 'deliberately damaged mission database')
+        $original = (Get-FileHash -LiteralPath $damaged).Hash
+        $dataFault = Invoke-Portable 'argus-desktop' @('--ui-fleet-data-fault', $faultData) | ConvertFrom-Json
+        Assert-Package ($dataFault.storageIssueVisible -and $dataFault.writesBlocked -and
+            $dataFault.simulationAvailable -and (Get-FileHash -LiteralPath $damaged).Hash -eq $original) 'Portable recovery did not protect the damaged journal.'
     }
     Remove-TestFolder $replacement
     Assert-Package (!(Test-Path -LiteralPath $replacement) -and (Test-Path -LiteralPath $catalog) -and
@@ -238,13 +249,14 @@ try {
         Assert-Package ((Test-Path -LiteralPath (Join-Path $fleetData 'missions.db') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $trafficData 'missions.db') -PathType Leaf)) 'Portable uninstall removed the fleet journals.'
     }
-    $checks = @('digest', 'extract', 'version', 'custom-warehouse', 'robot-deployment', 'exploration',
+    $checks = @('digest', 'extract', 'version', 'operations-directory-validation', 'custom-warehouse', 'robot-deployment', 'exploration',
         'map-pin-and-corruption', 'product-lookup', 'item-search', 'audit-and-csv-review', 'mission',
         'denied-write', 'replacement-and-reopen', 'portable-uninstall')
     if ($NativeUi) {
         $checks += @('native-continuous-workflow', 'native-reopen-after-replacement', 'native-data-after-uninstall')
         $checks += @('native-fleet-audits', 'native-audit-review', 'native-shared-aisle',
-            'native-fleet-recovery-after-replacement', 'native-review-after-replacement')
+            'native-fleet-recovery-after-replacement', 'native-review-after-replacement',
+            'native-damaged-journal')
     }
     $graphics = if ($NativeUi) {
         @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
@@ -263,6 +275,7 @@ try {
         nativeReview = $review
         nativeReviewReopen = $reviewReopen
         nativeTraffic = $traffic
+        nativeDataFault = $dataFault
         checks = $checks
     } | ConvertTo-Json -Depth 5
 } finally {

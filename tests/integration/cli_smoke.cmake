@@ -30,6 +30,8 @@ if(ARGUS_APP STREQUAL "argus-headless")
         "{\"event\":\"application_starting\",\"app\":\"argus-headless\",\"version\":\"${ARGUS_VERSION}\",\"seed\":0}"
         --seed 0)
 else()
+    check_cli(2 "" "argus-desktop: Choose an existing operations data directory."
+        --operations-data "${CMAKE_CURRENT_LIST_FILE}")
     set(ENV{SDL_VIDEO_DRIVER} "argus-unsupported-driver")
     set(start "{\"event\":\"application_starting\",\"app\":\"argus-desktop\",\"version\":\"${ARGUS_VERSION}\",\"seed\":5489}")
     set(failure [=[{"event":"application_failed","app":"argus-desktop","code":"video_initialization"}]=])

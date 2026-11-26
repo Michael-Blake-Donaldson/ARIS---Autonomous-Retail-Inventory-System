@@ -38,21 +38,22 @@ Fleet::Fleet(const std::optional<std::filesystem::path> &directory) : history_(l
                 auto loaded = store->shelf_history(locations()[i].id);
                 auto *records = std::get_if<std::vector<mission::ShelfAudit>>(&loaded);
                 if (!records) {
-                    history_error_ = true;
+                    history_issue_ = journal_error_message(std::get<mission::Error>(loaded));
                     continue;
                 }
                 for (auto &saved : *records) {
                     auto report = decode_shelf_report(saved.report);
                     if (!report || saved.robot.value() == 0 || saved.robot.value() > robot_count ||
                         saved.session == 0 || saved.run.value() == 0 || saved.completed_ms == 0) {
-                        history_error_ = true;
+                        history_issue_ =
+                            "Some audit reports are damaged. Preserve the data folder.";
                         continue;
                     }
                     history_[i].push_back({std::move(saved), std::move(*report)});
                 }
             }
         } else {
-            history_error_ = true;
+            history_issue_ = journal_error_message(std::get<mission::Error>(opened));
         }
     }
     auto model = audit::shared_stockroom_world();
@@ -84,8 +85,9 @@ bool Fleet::motion_available() const noexcept {
 }
 
 bool Fleet::queue(std::size_t robot, std::size_t location) {
-    if (!ready() || !motion_available() || robot >= units_.size() || location >= history_.size() ||
-        busy(robot) || state(location) == ShelfState::auditing || aisle_retained(robot)) {
+    if (!ready() || !motion_available() || history_error() || robot >= units_.size() ||
+        location >= history_.size() || busy(robot) || state(location) == ShelfState::auditing ||
+        aisle_retained(robot)) {
         return false;
     }
     auto &unit = *units_[robot];
@@ -98,7 +100,7 @@ bool Fleet::queue(std::size_t robot, std::size_t location) {
 }
 
 bool Fleet::review(std::size_t location, mission::ShelfAuditKey key) {
-    if (location >= history_.size() || review_ || history_[location].empty() ||
+    if (history_error() || location >= history_.size() || review_ || history_[location].empty() ||
         state(location) == ShelfState::auditing) {
         return false;
     }
@@ -111,6 +113,7 @@ bool Fleet::review(std::size_t location, mission::ShelfAuditKey key) {
                          .count();
     if (now <= 0 || static_cast<std::uint64_t>(now) < entry.audit.completed_ms) {
         review_failure_ = location;
+        review_error_ = "Check the system clock before marking this report reviewed.";
         return false;
     }
     const auto stamp = static_cast<std::uint64_t>(now);
@@ -134,6 +137,7 @@ bool Fleet::review(std::size_t location, mission::ShelfAuditKey key) {
         return true;
     } catch (const std::exception &) {
         review_failure_ = location;
+        review_error_ = journal_error_message(mission::Error::storage);
         return false;
     }
 }
@@ -155,9 +159,11 @@ void Fleet::receive_review() {
             }
         } else {
             review_failure_ = location;
+            review_error_ = journal_error_message(std::get<mission::Error>(result));
         }
     } catch (const std::exception &) {
         review_failure_ = location;
+        review_error_ = journal_error_message(mission::Error::storage);
     }
     review_.reset();
 }

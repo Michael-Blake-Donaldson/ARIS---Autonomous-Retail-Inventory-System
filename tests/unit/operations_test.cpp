@@ -11,6 +11,16 @@ namespace {
 
 using namespace argus::desktop;
 
+TEST(OperationsModel, SearchToleratesWhitespaceAndRecoversAfterWrongIds) {
+    using namespace argus;
+    EXPECT_TRUE(trim_search(" \t ").empty());
+    EXPECT_FALSE(inventory::valid(inventory::Dpci{std::string{trim_search("990-0X-0001")}}));
+    EXPECT_TRUE(inventory::valid(inventory::Dpci{std::string{trim_search(" 990-01-0001 ")}}));
+    EXPECT_FALSE(matches_location_search("A20J06-W01", " A20J06-W00 "));
+    EXPECT_TRUE(matches_location_search("A20J06-W01", " a20j06-w01 "));
+    EXPECT_TRUE(matches_location_search("A20J06-W01", " "));
+}
+
 TEST(ShelfReport, KeepsZeroReadsAndOrdersProductsWithValidatedTags) {
     using namespace argus;
     const inventory::Product shoe{{"990-02-0001"}, "Canvas shoe", inventory::Category::shoes};

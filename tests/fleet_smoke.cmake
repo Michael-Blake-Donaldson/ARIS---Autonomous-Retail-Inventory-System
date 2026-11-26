@@ -19,7 +19,8 @@ foreach(mode IN ITEMS smoke reopen)
         NOT output MATCHES "\"selectionPreserved\":true" OR
         NOT output MATCHES "\"holdVisible\":true" OR
         NOT output MATCHES "\"returnedToBerth\":true" OR
-        NOT output MATCHES "\"auditSavedAfterHold\":true"))
+        NOT output MATCHES "\"auditSavedAfterHold\":true" OR
+        NOT output MATCHES "\"focusLossHeldFleet\":true"))
         message(FATAL_ERROR "Dashboard review evidence is incomplete\n${output}")
     endif()
     message(STATUS "${output}")
@@ -50,6 +51,21 @@ if(NOT result STREQUAL "0" OR NOT output MATCHES "\"sharedFleet\":true" OR
     NOT output MATCHES "\"yielded\":true" OR NOT output MATCHES "\"bothAuditsCompleted\":true" OR
     NOT output MATCHES "\"secondLocation\":\"A20J07\"")
     message(FATAL_ERROR "Shared aisle failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
+endif()
+message(STATUS "${output}")
+file(REMOVE_RECURSE "${data}")
+
+set(data "${ARGUS_FLEET_ROOT}/fleet-fault-${run}")
+file(MAKE_DIRECTORY "${data}")
+set(journal "deliberately damaged mission database")
+file(WRITE "${data}/missions.db" "${journal}")
+execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-data-fault "${data}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 20)
+file(READ "${data}/missions.db" remaining)
+if(NOT result STREQUAL "0" OR NOT output MATCHES "\"storageIssueVisible\":true" OR
+    NOT output MATCHES "\"writesBlocked\":true" OR NOT output MATCHES "\"simulationAvailable\":true" OR
+    NOT remaining STREQUAL journal)
+    message(FATAL_ERROR "Damaged journal recovery failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
 endif()
 message(STATUS "${output}")
 file(REMOVE_RECURSE "${data}")

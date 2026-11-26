@@ -105,14 +105,6 @@ void product_name(const ShelfProduct &row, const FleetPhotos &photos) {
     }
 }
 
-bool matches_shelf(std::string_view label, std::string_view query) {
-    constexpr auto upper_ascii = [](char ch) {
-        return ch >= 'a' && ch <= 'z' ? static_cast<char>(ch - 'a' + 'A') : ch;
-    };
-    return query.empty() ||
-           !std::ranges::search(label, query, {}, upper_ascii, upper_ascii).empty();
-}
-
 void centered_text(ImDrawList &draw, ImVec2 center, ImU32 color, std::string_view text) {
     const auto size = ImGui::CalcTextSize(text.data(), text.data() + text.size());
     draw.AddText({center.x - size.x / 2.0F, center.y - size.y / 2.0F}, color, text.data(),
@@ -211,6 +203,10 @@ void FleetPanel::robots(Panel &panel) {
             ImGui::TextColored(auditing, "%s", frame.traffic_yield ? "Yielding" : "Hold");
             ImGui::SameLine();
             ImGui::TextWrapped("%s", reason);
+            if (fleet.aisle_retained(i) && !fleet.busy(i) && !activity.empty() &&
+                activity != "Run held by operator" && activity != reason) {
+                ImGui::TextWrapped("%.*s", static_cast<int>(activity.size()), activity.data());
+            }
         } else if (!working && activity != "Inventory ready" &&
                    activity != "Shelf audit complete" && activity != "Starting") {
             ImGui::TextWrapped("%.*s", static_cast<int>(activity.size()), activity.data());
@@ -231,6 +227,10 @@ void FleetPanel::robots(Panel &panel) {
     }
     ImGui::Separator();
     const auto &location = Fleet::locations()[location_];
+    if (const auto *issue = fleet.history_issue()) {
+        layout_.history_issue_visible = true;
+        ImGui::TextWrapped("%s Reopen ARGUS after checking the folder.", issue);
+    }
     ImGui::TextColored(accent, "%s", location.id.value.c_str());
     ImGui::SameLine();
     const auto state = status(fleet.state(location_));
@@ -263,7 +263,8 @@ void FleetPanel::robots(Panel &panel) {
         }
         ImGui::EndDisabled();
     } else {
-        ImGui::BeginDisabled(!fleet.motion_available() || fleet.busy(selected_) ||
+        ImGui::BeginDisabled(fleet.history_error() || !fleet.motion_available() ||
+                             fleet.busy(selected_) ||
                              fleet.state(location_) == ShelfState::auditing);
         if (ImGui::Button(history.empty() ? "Start location audit" : "Re-audit location",
                           {-1, 0})) {
@@ -464,14 +465,14 @@ void FleetPanel::locations() {
                              shelf_filter_.size());
     ImGui::Checkbox("Needs review only", &review_only_);
     layout_.review_filter = item_center();
-    const std::string_view query{shelf_filter_.data()};
+    const auto query = trim_search(shelf_filter_.data());
     const auto list = Fleet::locations();
     ImGui::Separator();
     if (!query.empty() || review_only_) {
         bool matched = false;
         for (std::size_t i = 0; i < list.size(); ++i) {
             const auto history = fleet.history(i);
-            if ((query.empty() || matches_shelf(list[i].id.value, query)) &&
+            if (matches_location_search(list[i].id.value, query) &&
                 (!review_only_ || (!history.empty() && history.front().needs_review()))) {
                 matched = true;
                 location_row(i);
@@ -479,7 +480,14 @@ void FleetPanel::locations() {
             }
         }
         if (!matched) {
-            ImGui::TextDisabled("No matching locations");
+            if (query.empty()) {
+                ImGui::TextDisabled("No locations need review");
+            } else {
+                ImGui::TextWrapped("No matching locations. Check the shelf or Waco ID.");
+                if (ImGui::Button("Clear search")) {
+                    shelf_filter_[0] = '\0';
+                }
+            }
         }
     } else {
         for (std::size_t aisle = 0; aisle < audit::stockroom_aisles.size(); ++aisle) {
@@ -523,7 +531,7 @@ void FleetPanel::locations() {
         }
     }
     if (fleet.history_error()) {
-        ImGui::TextWrapped("Some location audits could not be read.");
+        ImGui::TextWrapped("%s Reopen ARGUS after checking the folder.", fleet.history_issue());
     } else if (!fleet.durable()) {
         ImGui::TextDisabled("Temporary session");
     }
@@ -599,7 +607,8 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     const auto history = fleet->history(location_);
     if (history.empty()) {
         ImGui::TextDisabled("No completed audit");
-        ImGui::BeginDisabled(!fleet->motion_available() || fleet->busy(selected_) ||
+        ImGui::BeginDisabled(fleet->history_error() || !fleet->motion_available() ||
+                             fleet->busy(selected_) ||
                              fleet->state(location_) == ShelfState::auditing);
         if (ImGui::Button("Start location audit")) {
             static_cast<void>(fleet->queue(selected_, location_));
@@ -647,8 +656,8 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     }
     if (selected == history.begin()) {
         const bool active = fleet->state(location_) == ShelfState::auditing;
-        const bool can_recheck = fleet->motion_available() && !active && !fleet->busy(selected_) &&
-                                 !fleet->aisle_retained(selected_);
+        const bool can_recheck = !fleet->history_error() && fleet->motion_available() && !active &&
+                                 !fleet->busy(selected_) && !fleet->aisle_retained(selected_);
         ImGui::BeginDisabled(!can_recheck);
         const bool recheck = ImGui::Button("Re-audit location");
         if (can_recheck) {
@@ -662,7 +671,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
         ImGui::TextDisabled("Robot %zu", selected_ + 1);
         if (entry.needs_review()) {
             ImGui::SameLine();
-            const bool can_review = !active && !fleet->review_pending();
+            const bool can_review = !fleet->history_error() && !active && !fleet->review_pending();
             ImGui::BeginDisabled(!can_review);
             const bool review = ImGui::Button("Mark reviewed");
             if (can_review) {
@@ -673,8 +682,8 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
             }
             ImGui::EndDisabled();
         }
-        if (fleet->review_failed(location_)) {
-            ImGui::TextColored(auditing, "Could not save review.");
+        if (const auto *error = fleet->review_error(location_)) {
+            ImGui::TextWrapped("%s", error);
         }
     }
     if (entry.audit.recheck_of) {

@@ -38,8 +38,8 @@ class Fleet {
     [[nodiscard]] bool queue(std::size_t robot, std::size_t location);
     [[nodiscard]] bool review(std::size_t location, mission::ShelfAuditKey key);
     [[nodiscard]] bool review_pending() const noexcept { return review_.has_value(); }
-    [[nodiscard]] bool review_failed(std::size_t location) const noexcept {
-        return review_failure_ == location;
+    [[nodiscard]] const char *review_error(std::size_t location) const noexcept {
+        return review_failure_ == location ? review_error_ : nullptr;
     }
     [[nodiscard]] bool clear_aisle(std::size_t robot);
     [[nodiscard]] bool aisle_retained(std::size_t robot) const;
@@ -53,7 +53,8 @@ class Fleet {
     [[nodiscard]] AisleSummary aisle_summary(std::size_t aisle) const;
     [[nodiscard]] std::string_view status(std::size_t robot) const noexcept;
     [[nodiscard]] const Layout &layout() const noexcept { return *layout_; }
-    [[nodiscard]] bool history_error() const noexcept { return history_error_; }
+    [[nodiscard]] bool history_error() const noexcept { return history_issue_ != nullptr; }
+    [[nodiscard]] const char *history_issue() const noexcept { return history_issue_; }
     [[nodiscard]] bool durable() const noexcept { return journal_.has_value(); }
 
   private:
@@ -84,9 +85,10 @@ class Fleet {
     std::vector<std::vector<ShelfEntry>> history_;
     std::optional<Layout> layout_;
     std::optional<std::filesystem::path> journal_;
-    bool history_error_{};
+    const char *history_issue_{};
     std::optional<PendingReview> review_;
     std::optional<std::size_t> review_failure_;
+    const char *review_error_{};
 };
 
 } // namespace argus::desktop

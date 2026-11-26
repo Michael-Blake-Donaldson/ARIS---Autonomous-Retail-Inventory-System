@@ -30,6 +30,8 @@ enum class Panel {
     return panel == Panel::fleet || panel == Panel::maintenance || panel == Panel::locations;
 }
 enum class CameraMode { orbit, plan, follow };
+[[nodiscard]] std::string_view trim_search(std::string_view text) noexcept;
+[[nodiscard]] bool matches_location_search(std::string_view label, std::string_view query) noexcept;
 [[nodiscard]] inline CameraMode view_camera_mode(CameraMode mode, bool archived) noexcept {
     return archived && mode == CameraMode::follow ? CameraMode::plan : mode;
 }

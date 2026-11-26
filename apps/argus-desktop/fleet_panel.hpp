@@ -25,6 +25,7 @@ struct DashboardLayout {
     float overflow_width{};
     bool shelf_ids{};
     bool hold_visible{};
+    bool history_issue_visible{};
     std::size_t products{};
     bool compared{};
     std::size_t filtered_reviews{};

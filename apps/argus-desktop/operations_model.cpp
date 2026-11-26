@@ -7,6 +7,23 @@
 
 namespace argus::desktop {
 
+std::string_view trim_search(std::string_view text) noexcept {
+    const auto first = text.find_first_not_of(" \t");
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    return text.substr(first, text.find_last_not_of(" \t") - first + 1);
+}
+
+bool matches_location_search(std::string_view label, std::string_view query) noexcept {
+    constexpr auto upper_ascii = [](char ch) {
+        return ch >= 'a' && ch <= 'z' ? static_cast<char>(ch - 'a' + 'A') : ch;
+    };
+    query = trim_search(query);
+    return query.empty() ||
+           !std::ranges::search(label, query, {}, upper_ascii, upper_ascii).empty();
+}
+
 void DriveInput::deadman(bool pressed, bool fresh) noexcept {
     if (pressed && stop_) {
         return;

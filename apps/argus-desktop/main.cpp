@@ -34,6 +34,7 @@ enum class Mode {
     fleet_smoke,
     fleet_reopen,
     fleet_traffic,
+    fleet_data_fault,
     fleet_review,
     fleet_review_reopen,
     dashboard_record,
@@ -45,7 +46,7 @@ bool review_probe(Mode mode) noexcept {
 }
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
-           mode == Mode::dashboard_record || review_probe(mode);
+           mode == Mode::fleet_data_fault || mode == Mode::dashboard_record || review_probe(mode);
 }
 bool captures_video(Mode mode) noexcept {
     return mode == Mode::record || mode == Mode::dashboard_record || mode == Mode::review_record;
@@ -221,9 +222,14 @@ class Controls {
     void disarm() noexcept { drive_.disarm(); }
     [[nodiscard]] bool armed() const noexcept { return drive_.armed(); }
 
-    void event(const SDL_Event &event, Panels &ui) {
+    void event(const SDL_Event &event, Panels &ui, bool interactive) {
         if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_MINIMIZED) {
             disarm();
+            // Native probes ignore desktop focus changes. Their injected focus event has no
+            // associated window and exercises the same fleet hold as interactive focus loss.
+            if (interactive || event.window.windowID == 0) {
+                ui.hold_fleet();
+            }
             ui.request(LiveAction::pause);
             return;
         }
@@ -578,7 +584,7 @@ class FleetProbe {
         if (!reopen_ && !queued_ && !fleet->busy(0) && !fleet->busy(1)) {
             if (fleet->state(whole_) != ShelfState::pending ||
                 fleet->state(waco_) != ShelfState::pending || !fleet->queue(0, whole_) ||
-                !fleet->queue(1, waco_)) {
+                fleet->queue(0, waco_) || fleet->queue(1, whole_) || !fleet->queue(1, waco_)) {
                 std::cerr << "Fleet smoke requires a fresh data directory\n";
                 return false;
             }
@@ -733,7 +739,11 @@ class FleetProbe {
             break;
         case Review::watch_saved_return:
             if (fleet.frame(1).returning_to_berth) {
-                fleet.hold();
+                SDL_Event lost{};
+                lost.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+                if (!SDL_PushEvent(&lost)) {
+                    return false;
+                }
                 review_ = Review::verify_saved_audit;
             }
             break;
@@ -819,7 +829,7 @@ class FleetProbe {
                              "\"holdVisible\":true,\"returnedToBerth\":true"
                            : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true");
         if (audit_saved_after_hold_) {
-            output << ",\"auditSavedAfterHold\":true";
+            output << ",\"auditSavedAfterHold\":true,\"focusLossHeldFleet\":true";
         }
         output << "}\n";
         return true;
@@ -941,7 +951,7 @@ class AuditReviewProbe {
         }
         const auto history = fleet->history(location_);
         const auto &layout = ui.fleet.layout();
-        if (history.empty() || layout.horizontal_scroll || fleet->review_failed(location_)) {
+        if (history.empty() || layout.horizontal_scroll || fleet->review_error(location_)) {
             return false;
         }
         if (recording_ && !pressed_ && SDL_GetTicks() < next_action_) {
@@ -1074,11 +1084,12 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     std::optional<FleetProbe> probe;
     std::optional<AisleProbe> aisle_probe;
     std::optional<AuditReviewProbe> review;
+    const auto started = SDL_GetTicks();
     if (mode == Mode::fleet_traffic) {
         aisle_probe.emplace();
     } else if (review_probe(mode)) {
         review.emplace(mode);
-    } else if (verification) {
+    } else if (verification && mode != Mode::fleet_data_fault) {
         probe.emplace(mode);
     }
     const auto hold = [&] {
@@ -1103,7 +1114,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
                 hold();
                 return std::monostate{};
             }
-            controls.event(event, ui);
+            controls.event(event, ui, mode == Mode::interactive);
         }
         ui.poll();
         if (pending_stop && engine) {
@@ -1136,6 +1147,21 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             ui.hold_fleet();
         }
         ui.tick_fleet(focused);
+        if (mode == Mode::fleet_data_fault) {
+            const auto *fleet = ui.fleet.get();
+            if (!fleet || !fleet->history_error() || SDL_GetTicks() - started > 10000) {
+                return Error::graphics_present;
+            }
+            if (ui.fleet.layout().history_issue_visible && fleet->motion_available() &&
+                fleet->frame(0).telemetry.sample_tick != 0) {
+                if (ui.fleet.get()->queue(0, Fleet::initial_location(0))) {
+                    return Error::graphics_present;
+                }
+                std::cout << "{\"storageIssueVisible\":true,\"writesBlocked\":true,"
+                             "\"simulationAvailable\":true}\n";
+                return std::monostate{};
+            }
+        }
         if (fleet_panel(ui.panel)) {
             controls.disarm();
         }
@@ -1282,6 +1308,9 @@ app::Status reopen_fleet(const app::Options &options) {
 app::Status verify_traffic(const app::Options &options) {
     return desktop(options, Mode::fleet_traffic);
 }
+app::Status verify_data_fault(const app::Options &options) {
+    return desktop(options, Mode::fleet_data_fault);
+}
 app::Status verify_review(const app::Options &options) {
     return desktop(options, Mode::fleet_review);
 }
@@ -1299,18 +1328,26 @@ app::Status record_dashboard(const app::Options &options) {
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
-                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
-                      option == "--ui-fleet-reopen" || option == "--ui-fleet-traffic" ||
-                      option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
-                      option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
+    if (argc == 3 &&
+        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
+         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
+         option == "--ui-fleet-traffic" || option == "--ui-fleet-data-fault" ||
+         option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
+         option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
+            std::cerr << "argus-desktop: Choose an existing operations data directory.\n";
             return 2;
         }
         try {
-            operations_directory = std::filesystem::path{path};
+            auto directory = std::filesystem::absolute(std::filesystem::path{path});
+            if (!std::filesystem::is_directory(directory)) {
+                std::cerr << "argus-desktop: Choose an existing operations data directory.\n";
+                return 2;
+            }
+            operations_directory = std::move(directory);
         } catch (const std::exception &) {
+            std::cerr << "argus-desktop: Could not access the operations data directory.\n";
             return 2;
         }
         const auto entry = option == "--ui-smoke"                 ? smoke
@@ -1318,6 +1355,7 @@ int main(int argc, char **argv) {
                            : option == "--ui-fleet-smoke"         ? verify_fleet
                            : option == "--ui-fleet-reopen"        ? reopen_fleet
                            : option == "--ui-fleet-traffic"       ? verify_traffic
+                           : option == "--ui-fleet-data-fault"    ? verify_data_fault
                            : option == "--ui-fleet-review"        ? verify_review
                            : option == "--ui-fleet-review-reopen" ? reopen_review
                            : option == "--ui-dashboard-record"    ? record_dashboard

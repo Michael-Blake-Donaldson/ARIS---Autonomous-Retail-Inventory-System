@@ -727,7 +727,11 @@ void Panels::find() {
     title("Search by DPCI");
     ImGui::SetNextItemWidth(-1.0F);
     ImGui::InputTextWithHint("##dpci", "DDD-DD-DDDD", dpci_.data(), dpci_.size());
-    const inventory::Dpci request{dpci_.data()};
+    const inventory::Dpci request{std::string{trim_search(dpci_.data())}};
+    if (!inventory::valid(request)) {
+        quiet(request.value.empty() ? "Enter a DPCI to look up a product."
+                                    : "Use nine digits in DDD-DD-DDDD format.");
+    }
     ImGui::BeginDisabled(busy() || !inventory::valid(request));
     if (ImGui::Button("Lookup")) {
         static_cast<void>(queue({JobKind::lookup, request.value}));

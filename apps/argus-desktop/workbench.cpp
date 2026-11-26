@@ -16,6 +16,23 @@
 #include <utility>
 
 namespace argus::desktop {
+
+const char *journal_error_message(mission::Error error) noexcept {
+    switch (error) {
+    case mission::Error::busy:
+        return "Audit history is busy. Close other writers and retry.";
+    case mission::Error::storage_full:
+        return "Audit storage is full. Free space or use another data folder.";
+    case mission::Error::read_only:
+        return "Audit history is read-only. Check the data folder permissions.";
+    case mission::Error::stale:
+    case mission::Error::conflict:
+        return "Audit history changed. Reopen ARGUS before trying again.";
+    default:
+        return "Audit history is unavailable. Check the data folder and preserve its files.";
+    }
+}
+
 namespace {
 
 class Sandbox {
@@ -200,8 +217,14 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
                                   std::move(encoded),
                                   job.shelf->recheck_of};
         if (job.shelf->journal) {
-            auto journal = checked(mission::Store::open(*job.shelf->journal));
-            checked(journal.save_shelf_audit(saved));
+            auto opened = mission::Store::open(*job.shelf->journal);
+            if (const auto *error = std::get_if<mission::Error>(&opened)) {
+                throw std::string{journal_error_message(*error)};
+            }
+            const auto persisted = std::get<mission::Store>(opened).save_shelf_audit(saved);
+            if (const auto *error = std::get_if<mission::Error>(&persisted)) {
+                throw std::string{journal_error_message(*error)};
+            }
         }
         result.shelf = std::move(saved);
         result.status = "Shelf audit complete";
