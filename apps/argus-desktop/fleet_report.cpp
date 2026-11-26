@@ -22,6 +22,27 @@ bool ShelfReport::needs_review() const noexcept {
            std::ranges::any_of(products, &ShelfProduct::discrepancy);
 }
 
+std::vector<ShelfComparisonRow> compare_shelf_reports(const ShelfReport &source,
+                                                      const ShelfReport &current) {
+    const auto &before = source.products;
+    const auto &after = current.products;
+    std::vector<ShelfComparisonRow> rows;
+    rows.reserve(before.size() + after.size());
+    auto left = before.begin();
+    auto right = after.begin();
+    while (left != before.end() || right != after.end()) {
+        if (right == after.end() ||
+            (left != before.end() && left->product.id.value < right->product.id.value)) {
+            rows.push_back({&*left++, nullptr});
+        } else if (left == before.end() || right->product.id.value < left->product.id.value) {
+            rows.push_back({nullptr, &*right++});
+        } else {
+            rows.push_back({&*left++, &*right++});
+        }
+    }
+    return rows;
+}
+
 std::optional<ShelfReport> make_shelf_report(const audit::Report &report,
                                              std::span<const inventory::Product> products) {
     const auto *scope = std::get_if<audit::AuditAisle>(&report.request);

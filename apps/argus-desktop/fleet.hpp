@@ -4,6 +4,8 @@
 #include "fleet_report.hpp"
 #include "workbench.hpp"
 
+#include <future>
+
 namespace argus::desktop {
 
 enum class ShelfState { pending, auditing, complete };
@@ -11,6 +13,9 @@ enum class ShelfState { pending, auditing, complete };
 struct ShelfEntry {
     mission::ShelfAudit audit;
     ShelfReport report;
+    [[nodiscard]] bool needs_review() const noexcept {
+        return !audit.reviewed_ms && report.needs_review();
+    }
 };
 
 struct AisleSummary {
@@ -29,6 +34,11 @@ class Fleet {
     explicit Fleet(const std::optional<std::filesystem::path> &directory);
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] bool queue(std::size_t robot, std::size_t location);
+    [[nodiscard]] bool review(std::size_t location, mission::ShelfAuditKey key);
+    [[nodiscard]] bool review_pending() const noexcept { return review_.has_value(); }
+    [[nodiscard]] bool review_failed(std::size_t location) const noexcept {
+        return review_failure_ == location;
+    }
     [[nodiscard]] bool clear_aisle(std::size_t robot);
     [[nodiscard]] bool aisle_retained(std::size_t robot) const;
     void tick(bool focused);
@@ -51,6 +61,7 @@ class Fleet {
               workbench{{}, true, std::move(worker)} {}
         std::shared_ptr<const ObservedFrame> preview;
         std::optional<std::size_t> target;
+        std::optional<mission::ShelfAuditKey> recheck_of;
         std::string status{"Starting"};
         bool pending{};
         bool clearing{};
@@ -59,6 +70,12 @@ class Fleet {
 
     void receive(Unit &unit, std::size_t index);
     void dispatch(Unit &unit, std::size_t index);
+    void receive_review();
+    struct PendingReview {
+        std::size_t location;
+        mission::ShelfAuditKey key;
+        std::future<Result<std::uint64_t, mission::Error>> result;
+    };
     std::array<std::unique_ptr<Unit>, robot_count> units_;
     std::shared_ptr<simulation::FleetClock> clock_{std::make_shared<simulation::FleetClock>()};
     std::shared_ptr<navigation::AisleAccess> access_{std::make_shared<navigation::AisleAccess>()};
@@ -66,6 +83,8 @@ class Fleet {
     std::optional<Layout> layout_;
     std::optional<std::filesystem::path> journal_;
     bool history_error_{};
+    std::optional<PendingReview> review_;
+    std::optional<std::size_t> review_failure_;
 };
 
 } // namespace argus::desktop

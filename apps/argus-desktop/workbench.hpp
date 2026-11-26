@@ -33,6 +33,7 @@ struct ShelfAssignment {
     RobotId robot;
     RunId run;
     std::optional<std::filesystem::path> journal;
+    std::optional<mission::ShelfAuditKey> recheck_of{};
 };
 
 struct Job {

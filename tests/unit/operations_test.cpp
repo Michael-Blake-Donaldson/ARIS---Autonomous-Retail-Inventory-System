@@ -46,6 +46,24 @@ TEST(ShelfReport, RejectsMalformedOrInconsistentPersistedProductData) {
     EXPECT_FALSE(decode_shelf_report(std::string(131073, 'a')));
 }
 
+TEST(ShelfReport, ComparesAddedRemovedAndSharedProductsByDpci) {
+    using namespace argus;
+    const inventory::Product tee{{"990-01-0001"}, "Tee", inventory::Category::clothing};
+    const inventory::Product shoe{{"990-02-0001"}, "Canvas shoe", inventory::Category::shoes};
+    const inventory::Product radio{
+        {"990-03-0001"}, "Pocket radio", inventory::Category::electronics};
+    const ShelfReport source{{{tee, 2, 0, {}}, {shoe, 4, 1, {}}}, {}, {}};
+    const ShelfReport current{{{tee, 2, 1, {}}, {radio, 1, 1, {}}}, {}, {}};
+    const auto comparison = compare_shelf_reports(source, current);
+    ASSERT_EQ(comparison.size(), 3U);
+    EXPECT_EQ(comparison[0].source, &source.products[0]);
+    EXPECT_EQ(comparison[0].current, &current.products[0]);
+    EXPECT_EQ(comparison[1].source, &source.products[1]);
+    EXPECT_EQ(comparison[1].current, nullptr);
+    EXPECT_EQ(comparison[2].source, nullptr);
+    EXPECT_EQ(comparison[2].current, &current.products[1]);
+}
+
 TEST(OperationsModel, FocusLossClearsMotionAndHeldRepeatCannotRearm) {
     DriveInput input;
     input.direction(DriveKey::forward, true);

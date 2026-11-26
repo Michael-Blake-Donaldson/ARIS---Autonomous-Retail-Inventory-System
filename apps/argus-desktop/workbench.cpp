@@ -193,7 +193,8 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
                                   job.shelf->run,
                                   session.value(),
                                   static_cast<std::uint64_t>(millis),
-                                  std::move(encoded)};
+                                  std::move(encoded),
+                                  job.shelf->recheck_of};
         if (job.shelf->journal) {
             auto journal = checked(mission::Store::open(*job.shelf->journal));
             checked(journal.save_shelf_audit(saved));

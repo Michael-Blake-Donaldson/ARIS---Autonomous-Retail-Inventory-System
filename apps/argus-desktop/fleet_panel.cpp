@@ -131,7 +131,7 @@ void FleetPanel::select_location(std::size_t index) {
     if (index < list.size() && index != location_) {
         location_ = index;
         aisle_ = list[index].aisle;
-        history_index_ = 0;
+        prior_view_.reset();
         product_page_ = 0;
     }
 }
@@ -227,13 +227,14 @@ void FleetPanel::robots(Panel &panel) {
     ImGui::TextColored(state.color, "%s", state.text);
     const auto history = fleet.history(location_);
     if (!history.empty()) {
-        if (history.front().report.needs_review()) {
+        if (history.front().needs_review()) {
             ImGui::TextColored(auditing, "Needs review");
         }
         const bool opened = ImGui::Button("Open audit", {-1, 0});
         layout_.open_audit = item_center();
         if (opened) {
-            history_index_ = product_page_ = 0;
+            prior_view_.reset();
+            product_page_ = 0;
             panel = Panel::locations;
         }
     }
@@ -249,7 +250,8 @@ void FleetPanel::robots(Panel &panel) {
     } else {
         ImGui::BeginDisabled(fleet.busy(selected_) ||
                              fleet.state(location_) == ShelfState::auditing);
-        if (ImGui::Button(history.empty() ? "Start location audit" : "Audit again", {-1, 0})) {
+        if (ImGui::Button(history.empty() ? "Start location audit" : "Re-audit location",
+                          {-1, 0})) {
             static_cast<void>(fleet.queue(selected_, location_));
         }
         ImGui::EndDisabled();
@@ -427,7 +429,7 @@ void FleetPanel::location_row(std::size_t index) {
     const auto state = status(fleet.state(index));
     ImGui::TextColored(state.color, "%s", state.text);
     const auto history = fleet.history(index);
-    if (!history.empty() && history.front().report.needs_review()) {
+    if (!history.empty() && history.front().needs_review()) {
         ImGui::SameLine();
         ImGui::TextColored(auditing, "Needs review");
     }
@@ -438,15 +440,20 @@ void FleetPanel::locations() {
     ImGui::SetNextItemWidth(-1.0F);
     ImGui::InputTextWithHint("##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(),
                              shelf_filter_.size());
+    ImGui::Checkbox("Needs review only", &review_only_);
+    layout_.review_filter = item_center();
     const std::string_view query{shelf_filter_.data()};
     const auto list = Fleet::locations();
     ImGui::Separator();
-    if (!query.empty()) {
+    if (!query.empty() || review_only_) {
         bool matched = false;
         for (std::size_t i = 0; i < list.size(); ++i) {
-            if (matches_shelf(list[i].id.value, query)) {
+            const auto history = fleet.history(i);
+            if ((query.empty() || matches_shelf(list[i].id.value, query)) &&
+                (!review_only_ || (!history.empty() && history.front().needs_review()))) {
                 matched = true;
                 location_row(i);
+                layout_.filtered_reviews += review_only_ ? 1U : 0U;
             }
         }
         if (!matched) {
@@ -578,15 +585,24 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
         ImGui::EndDisabled();
         return;
     }
-    history_index_ = std::min(history_index_, history.size() - 1);
+    const auto identity = [](const ShelfEntry &entry) { return entry.audit.key(); };
+    auto selected =
+        prior_view_ ? std::ranges::find(history, *prior_view_, identity) : history.begin();
+    if (selected == history.end()) {
+        prior_view_.reset();
+        selected = history.begin();
+        product_page_ = 0;
+    }
     if (history.size() > 1 && ImGui::CollapsingHeader("Audit history")) {
         for (std::size_t i = 0; i < history.size(); ++i) {
             std::array<char, 45> label{};
             std::snprintf(label.data(), label.size(), "%s##audit-%zu",
                           i == 0 ? "Latest audit" : "Earlier audit", i);
             ImGui::PushID(static_cast<int>(i));
-            if (ImGui::Selectable(label.data(), history_index_ == i, 0, {124.0F, 0.0F})) {
-                history_index_ = i;
+            const auto candidate = history.begin() + static_cast<std::ptrdiff_t>(i);
+            if (ImGui::Selectable(label.data(), selected == candidate, 0, {124.0F, 0.0F})) {
+                selected = candidate;
+                prior_view_ = i == 0 ? std::nullopt : std::optional{candidate->audit.key()};
                 product_page_ = 0;
             }
             ImGui::SameLine();
@@ -594,11 +610,98 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
             ImGui::PopID();
         }
     }
-    const auto &entry = history[history_index_];
-    ImGui::TextDisabled("Robot %llu  /  Session %llu",
+    const auto &entry = *selected;
+    ImGui::TextDisabled("Robot %llu  /  Session %llu  /  Run %llu",
                         static_cast<unsigned long long>(entry.audit.robot.value()),
-                        static_cast<unsigned long long>(entry.audit.session));
+                        static_cast<unsigned long long>(entry.audit.session),
+                        static_cast<unsigned long long>(entry.audit.run.value()));
     time_label(entry.audit.completed_ms);
+    if (entry.audit.reviewed_ms) {
+        ImGui::TextColored(complete, "Reviewed");
+        ImGui::SameLine();
+        time_label(*entry.audit.reviewed_ms);
+    } else if (entry.report.needs_review()) {
+        ImGui::TextColored(auditing, "Needs review");
+    }
+    if (selected == history.begin()) {
+        const bool active = fleet->state(location_) == ShelfState::auditing;
+        const bool can_recheck =
+            !active && !fleet->busy(selected_) && !fleet->aisle_retained(selected_);
+        ImGui::BeginDisabled(!can_recheck);
+        const bool recheck = ImGui::Button("Re-audit location");
+        if (can_recheck) {
+            layout_.recheck = item_center();
+        }
+        if (recheck) {
+            static_cast<void>(fleet->queue(selected_, location_));
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Robot %zu", selected_ + 1);
+        if (entry.needs_review()) {
+            ImGui::SameLine();
+            const bool can_review = !active && !fleet->review_pending();
+            ImGui::BeginDisabled(!can_review);
+            const bool review = ImGui::Button("Mark reviewed");
+            if (can_review) {
+                layout_.mark_reviewed = item_center();
+            }
+            if (review) {
+                static_cast<void>(fleet->review(location_, entry.audit.key()));
+            }
+            ImGui::EndDisabled();
+        }
+        if (fleet->review_failed(location_)) {
+            ImGui::TextColored(auditing, "Could not save review.");
+        }
+    }
+    if (entry.audit.recheck_of) {
+        const auto key = *entry.audit.recheck_of;
+        const auto source = std::ranges::find(history, key, identity);
+        ImGui::TextDisabled("Recheck of Robot %llu / Session %llu / Run %llu",
+                            static_cast<unsigned long long>(key.robot.value()),
+                            static_cast<unsigned long long>(key.session),
+                            static_cast<unsigned long long>(key.run.value()));
+        if (source == history.end()) {
+            ImGui::TextDisabled("Source report unavailable in audit history");
+        } else {
+            const bool expanded = ImGui::TreeNode("Compare with source audit");
+            layout_.compare = item_center();
+            if (expanded) {
+                const auto rows = compare_shelf_reports(source->report, entry.report);
+                if (ImGui::BeginTable("##recheck-counts", 3,
+                                      ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+                    ImGui::TableSetupColumn("DPCI");
+                    ImGui::TableSetupColumn("Source obs. / exp.");
+                    ImGui::TableSetupColumn("Recheck obs. / exp.");
+                    ImGui::TableHeadersRow();
+                    ImGuiListClipper clipper;
+                    clipper.Begin(static_cast<int>(rows.size()));
+                    while (clipper.Step()) {
+                        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                            const auto &row = rows[static_cast<std::size_t>(i)];
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            const auto *item = row.current ? row.current : row.source;
+                            ImGui::TextUnformatted(item->product.id.value.c_str());
+                            for (const auto *product : {row.source, row.current}) {
+                                ImGui::TableNextColumn();
+                                if (product) {
+                                    ImGui::Text("%zu / %llu", product->observed,
+                                                static_cast<unsigned long long>(product->expected));
+                                } else {
+                                    ImGui::TextDisabled("—");
+                                }
+                            }
+                        }
+                    }
+                    ImGui::EndTable();
+                    layout_.compared = !rows.empty();
+                }
+                ImGui::TreePop();
+            }
+        }
+    }
     if (ImGui::Checkbox("Discrepancies only", &discrepancies_only_)) {
         product_page_ = 0;
     }

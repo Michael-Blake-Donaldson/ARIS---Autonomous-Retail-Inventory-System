@@ -1,6 +1,7 @@
 #include "fleet.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 namespace argus::desktop {
 namespace {
@@ -84,8 +85,75 @@ bool Fleet::queue(std::size_t robot, std::size_t location) {
     auto &unit = *units_[robot];
     unit.pending = true;
     unit.target = location;
+    const auto reports = history(location);
+    unit.recheck_of = reports.empty() ? std::nullopt : std::optional{reports.front().audit.key()};
     unit.status = "Audit queued";
     return true;
+}
+
+bool Fleet::review(std::size_t location, mission::ShelfAuditKey key) {
+    if (location >= history_.size() || review_ || history_[location].empty() ||
+        state(location) == ShelfState::auditing) {
+        return false;
+    }
+    auto &entry = history_[location].front();
+    if (entry.audit.key() != key || !entry.needs_review()) {
+        return false;
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    if (now <= 0 || static_cast<std::uint64_t>(now) < entry.audit.completed_ms) {
+        review_failure_ = location;
+        return false;
+    }
+    const auto stamp = static_cast<std::uint64_t>(now);
+    review_failure_.reset();
+    if (!journal_) {
+        entry.audit.reviewed_ms = stamp;
+        return true;
+    }
+    try {
+        review_.emplace(
+            PendingReview{location, key,
+                          std::async(std::launch::async,
+                                     [path = *journal_, id = entry.audit.location, key,
+                                      stamp]() -> Result<std::uint64_t, mission::Error> {
+                                         auto opened = mission::Store::open(path);
+                                         if (auto *store = std::get_if<mission::Store>(&opened)) {
+                                             return store->review_shelf_audit(id, key, stamp);
+                                         }
+                                         return std::get<mission::Error>(opened);
+                                     })});
+        return true;
+    } catch (const std::exception &) {
+        review_failure_ = location;
+        return false;
+    }
+}
+
+void Fleet::receive_review() {
+    if (!review_ ||
+        review_->result.wait_for(std::chrono::seconds{0}) != std::future_status::ready) {
+        return;
+    }
+    const auto location = review_->location;
+    try {
+        auto result = review_->result.get();
+        if (const auto *stamp = std::get_if<std::uint64_t>(&result)) {
+            for (auto &entry : history_[location]) {
+                if (entry.audit.key() == review_->key) {
+                    entry.audit.reviewed_ms = *stamp;
+                    break;
+                }
+            }
+        } else {
+            review_failure_ = location;
+        }
+    } catch (const std::exception &) {
+        review_failure_ = location;
+    }
+    review_.reset();
 }
 
 bool Fleet::clear_aisle(std::size_t robot) {
@@ -108,6 +176,7 @@ void Fleet::tick(bool focused) {
     if (!ready()) {
         return;
     }
+    receive_review();
     if (!focused) {
         hold();
     }
@@ -170,7 +239,8 @@ void Fleet::dispatch(Unit &unit, std::size_t index) {
         return;
     }
     Job job{.kind = JobKind::shelf_audit,
-            .shelf = ShelfAssignment{location.id, id, unit.preview->run, journal_}};
+            .shelf =
+                ShelfAssignment{location.id, id, unit.preview->run, journal_, unit.recheck_of}};
     if (unit.workbench.submit(std::move(job))) {
         unit.status = "Auditing shelf";
     } else {
@@ -226,8 +296,7 @@ AisleSummary Fleet::aisle_summary(std::size_t aisle) const {
         if (locations()[i].aisle == aisle) {
             ++summary.total;
             summary.complete += state(i) == ShelfState::complete ? 1U : 0U;
-            summary.review +=
-                !history_[i].empty() && history_[i].front().report.needs_review() ? 1U : 0U;
+            summary.review += !history_[i].empty() && history_[i].front().needs_review() ? 1U : 0U;
         }
     }
     return summary;

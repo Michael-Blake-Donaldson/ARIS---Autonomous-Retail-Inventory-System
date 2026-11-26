@@ -24,6 +24,15 @@ struct ShelfReport {
     [[nodiscard]] bool needs_review() const noexcept;
 };
 
+struct ShelfComparisonRow {
+    const ShelfProduct *source;
+    const ShelfProduct *current;
+};
+
+// Rows borrow their products from the two reports and are ordered by DPCI.
+[[nodiscard]] std::vector<ShelfComparisonRow> compare_shelf_reports(const ShelfReport &source,
+                                                                    const ShelfReport &current);
+
 [[nodiscard]] std::optional<ShelfReport>
 make_shelf_report(const audit::Report &audit, std::span<const inventory::Product> products);
 [[nodiscard]] std::string encode_shelf_report(const ShelfReport &report);

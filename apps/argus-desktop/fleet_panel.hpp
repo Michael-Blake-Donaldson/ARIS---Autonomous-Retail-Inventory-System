@@ -15,12 +15,18 @@ struct DashboardLayout {
     std::optional<DashboardPoint> map_zoom;
     std::optional<DashboardPoint> open_audit;
     std::optional<DashboardPoint> maintenance;
+    std::optional<DashboardPoint> mark_reviewed;
+    std::optional<DashboardPoint> recheck;
+    std::optional<DashboardPoint> compare;
+    std::optional<DashboardPoint> review_filter;
     bool horizontal_scroll{};
     float overflow_position{};
     float overflow_width{};
     bool shelf_ids{};
     bool hold_visible{};
     std::size_t products{};
+    bool compared{};
+    std::size_t filtered_reviews{};
 };
 
 class FleetPanel {
@@ -52,13 +58,14 @@ class FleetPanel {
     std::size_t selected_{};
     std::size_t location_{};
     std::size_t aisle_{};
-    std::size_t history_index_{};
+    std::optional<mission::ShelfAuditKey> prior_view_;
     std::size_t product_page_{};
     std::array<char, 24> shelf_filter_{};
     float zoom_{1.0F};
     float pan_x_{};
     float pan_y_{};
     bool discrepancies_only_{};
+    bool review_only_{};
     DashboardLayout layout_;
 };
 
