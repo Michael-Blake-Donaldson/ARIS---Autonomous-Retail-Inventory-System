@@ -1,7 +1,9 @@
+#include "occupancy_mesh.hpp"
 #include "operations_model.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <limits>
 
 namespace {
@@ -95,6 +97,51 @@ TEST(OperationsModel, MapLocalizationStatusUsesOnlyTheMapperEstimate) {
     pose.sample_tick = 30;
     pose.reliable = false;
     EXPECT_EQ(map_status(telemetry, nullptr, pose).pose, PoseState::uncertain);
+}
+
+TEST(OccupancyMesh, ReusesAnObservedRevisionAcrossCopiesAndMatchesUncachedGeometry) {
+    using namespace argus;
+    auto grid = std::get<mapping::Grid>(mapping::Grid::create({ScenarioId{4}, 750, 400, 250}));
+    constexpr std::array<std::int8_t, 6> first{6, -2, 0, -2, 0, 6};
+    ASSERT_TRUE(grid.restore(first));
+    OccupancyMesh cached;
+    OccupancyMesh reference;
+    cached.update(grid, {RunId{1}, 1, false});
+    reference.rebuild(grid);
+    ASSERT_EQ(cached.vertices().size(), 16U);
+    EXPECT_TRUE(std::ranges::equal(cached.vertices(), reference.vertices()));
+    const auto worker_snapshot = grid;
+    cached.update(worker_snapshot, {RunId{1}, 1, false});
+    EXPECT_EQ(cached.builds(), 1U);
+
+    grid.clear();
+    cached.update(grid, {RunId{1}, 4, false});
+    reference.rebuild(grid);
+    EXPECT_EQ(cached.builds(), 2U);
+    EXPECT_TRUE(std::ranges::equal(cached.vertices(), reference.vertices()));
+    EXPECT_TRUE(cached.vertices().empty());
+}
+
+TEST(OccupancyMesh, SeparatesArchivesRunsAndMapSpecifications) {
+    using namespace argus;
+    constexpr mapping::Spec spec{ScenarioId{4}, 250, 250, 250};
+    auto live = std::get<mapping::Grid>(mapping::Grid::create(spec));
+    auto saved = live;
+    constexpr std::array<std::int8_t, 1> occupied{6};
+    ASSERT_TRUE(saved.restore(occupied));
+    OccupancyMesh mesh;
+    mesh.update(live, {RunId{1}, 1, false});
+    EXPECT_TRUE(mesh.vertices().empty());
+    mesh.update(saved, {RunId{1}, 1, true});
+    EXPECT_EQ(mesh.vertices().size(), 4U);
+    mesh.update(live, {RunId{1}, 1, false});
+    EXPECT_TRUE(mesh.vertices().empty());
+    mesh.update(saved, {RunId{2}, 1, false});
+    EXPECT_EQ(mesh.vertices().size(), 4U);
+    auto other = std::get<mapping::Grid>(mapping::Grid::create({ScenarioId{5}, 250, 250, 250}));
+    mesh.update(other, {RunId{2}, 1, false});
+    EXPECT_TRUE(mesh.vertices().empty());
+    EXPECT_EQ(mesh.builds(), 5U);
 }
 
 } // namespace

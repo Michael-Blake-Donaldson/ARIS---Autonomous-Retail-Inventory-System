@@ -175,7 +175,8 @@ void Panels::poll() {
                                   .estimate = {},
                                   .navigation = {},
                                   .run = archive.id,
-                                  .archived = true};
+                                  .archived = true,
+                                  .map_revision = ++archive_revision_};
             saved_map_.emplace(saved_frame);
             saved_ = std::move(archive);
             saved_review_text_ = std::move(result->review_text);

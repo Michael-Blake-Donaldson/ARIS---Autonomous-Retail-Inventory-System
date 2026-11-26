@@ -31,7 +31,7 @@ std::uint64_t checksum(std::span<const Vertex> mesh) noexcept {
     return hash;
 }
 
-int run(std::size_t frames) {
+int run(std::size_t frames, bool cached) {
     constexpr mapping::Spec spec{ScenarioId{42}, 100000, 100000, 100};
     auto first = std::get<mapping::Grid>(mapping::Grid::create(spec));
     auto second = first;
@@ -60,7 +60,11 @@ int run(std::size_t frames) {
         const auto revision = index / 8;
         const auto &grid = revision % 2 == 0 ? first : second;
         const auto start = Clock::now();
-        mesh.rebuild(grid);
+        if (cached) {
+            mesh.update(grid, {RunId{1}, revision, false});
+        } else {
+            mesh.rebuild(grid);
+        }
         samples.push_back(Milliseconds(Clock::now() - start).count());
         submitted += mesh.vertices().size();
     }
@@ -72,7 +76,8 @@ int run(std::size_t frames) {
     const auto percentile = [&](std::size_t rank) {
         return samples.at((samples.size() * rank + 99) / 100 - 1);
     };
-    std::cout << nlohmann::json{{"frames", frames},
+    std::cout << nlohmann::json{{"mode", cached ? "cached" : "uncached"},
+                                {"frames", frames},
                                 {"cells", first.evidence().size()},
                                 {"framesPerRevision", 8},
                                 {"meshTotalMs", total},
@@ -92,14 +97,15 @@ int run(std::size_t frames) {
 
 int main(int argc, char **argv) {
     std::size_t frames = 0;
-    if (argc == 2) {
+    if (argc == 3) {
         const std::string_view input{argv[1]};
+        const std::string_view mode{argv[2]};
         const auto parsed = std::from_chars(input.data(), input.data() + input.size(), frames);
         if (parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && frames >= 8 &&
-            frames <= 10000) {
-            return run(frames);
+            frames <= 10000 && (mode == "cached" || mode == "uncached")) {
+            return run(frames, mode == "cached");
         }
     }
-    std::cerr << "Usage: argus-occupancy-evaluation FRAMES(8..10000)\n";
+    std::cerr << "Usage: argus-occupancy-evaluation FRAMES(8..10000) cached|uncached\n";
     return 2;
 }

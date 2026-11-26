@@ -105,6 +105,7 @@ struct LiveFrame {
     std::optional<navigation::Progress> navigation;
     RunId run{0};
     bool archived{};
+    std::uint64_t map_revision{};
     [[nodiscard]] bool exploring() const noexcept {
         return navigation && navigation->state != navigation::State::finished;
     }

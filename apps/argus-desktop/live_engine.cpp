@@ -30,13 +30,15 @@ ObservedFrame::ObservedFrame(const LiveFrame &frame)
       lidar{frame.lidar ? std::optional{*frame.lidar} : std::nullopt},
       route(frame.route.begin(), frame.route.end()), trace(frame.trace.begin(), frame.trace.end()),
       reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
-      navigation{frame.navigation}, run{frame.run}, archived{frame.archived} {}
+      navigation{frame.navigation}, run{frame.run}, archived{frame.archived},
+      map_revision{frame.map_revision} {}
 
 LiveFrame ObservedFrame::view() const noexcept {
     const auto *scan = lidar ? &*lidar : nullptr;
-    return {telemetry, grid,       scan,   route,
-            trace,     reads,      unique, map_status(telemetry, scan, estimate),
-            estimate,  navigation, run,    archived};
+    return {telemetry,   grid,       scan,   route,
+            trace,       reads,      unique, map_status(telemetry, scan, estimate),
+            estimate,    navigation, run,    archived,
+            map_revision};
 }
 
 LiveEngine::LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
@@ -216,7 +218,9 @@ LiveFrame LiveEngine::frame() const noexcept {
             map_status(telemetry, lidar, mapper_.estimate()),
             mapper_.estimate(),
             navigator_ ? std::optional{navigator_->progress()} : job_progress_,
-            id_};
+            id_,
+            false,
+            mapper_.revision()};
 }
 
 DiagnosticsFrame LiveEngine::diagnostics() const {

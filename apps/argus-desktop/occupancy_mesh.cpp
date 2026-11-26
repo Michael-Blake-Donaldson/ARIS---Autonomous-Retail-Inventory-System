@@ -18,7 +18,17 @@ void append_surface(std::vector<Vertex> &mesh, double x, double y, double w, dou
                              {left, top, level, color}});
 }
 
+void OccupancyMesh::update(const mapping::Grid &grid, OccupancyVersion version) {
+    const Key key{grid.spec(), version};
+    if (key_ == key) {
+        return;
+    }
+    rebuild(grid);
+    key_ = key;
+}
+
 void OccupancyMesh::rebuild(const mapping::Grid &grid) {
+    key_.reset();
     constexpr double mm = 1000.0;
     constexpr double sample_target = 18000.0;
     const auto spec = grid.spec();

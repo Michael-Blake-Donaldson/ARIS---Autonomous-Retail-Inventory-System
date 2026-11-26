@@ -28,6 +28,7 @@ struct ObservedFrame {
     std::optional<navigation::Progress> navigation;
     RunId run;
     bool archived{};
+    std::uint64_t map_revision{};
 };
 
 class LiveEngine {

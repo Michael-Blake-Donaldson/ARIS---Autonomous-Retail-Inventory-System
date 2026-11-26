@@ -80,6 +80,7 @@ class Panels {
     std::uint64_t job_start_tick_{};
     std::shared_ptr<const ObservedFrame> preview_;
     std::optional<ObservedFrame> saved_map_;
+    std::uint64_t archive_revision_{};
     std::optional<mission::SavedRun> saved_;
     std::string saved_review_text_;
     std::optional<RunId> mission_run_;

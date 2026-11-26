@@ -154,7 +154,7 @@ void Scene::draw_overlays(const LiveFrame &frame, const Overlays &overlays,
                           std::span<const EvidenceRegion> uncertainty) {
     if (overlays.occupancy) {
         ++occupancy_frames_;
-        occupancy_.rebuild(frame.grid);
+        occupancy_.update(frame.grid, {frame.run, frame.map_revision, frame.archived});
         submit(occupancy_.vertices(), GL_QUADS);
     }
     temporary_.clear();
