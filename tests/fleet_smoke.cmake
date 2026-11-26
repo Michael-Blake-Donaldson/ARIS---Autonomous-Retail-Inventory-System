@@ -1,0 +1,16 @@
+if(NOT DEFINED ARGUS_DESKTOP OR NOT DEFINED ARGUS_FLEET_ROOT)
+    message(FATAL_ERROR "Fleet smoke requires the desktop executable and a build directory")
+endif()
+
+string(RANDOM LENGTH 20 ALPHABET 0123456789abcdef run)
+set(data "${ARGUS_FLEET_ROOT}/fleet-smoke-${run}")
+file(MAKE_DIRECTORY "${data}")
+foreach(mode IN ITEMS smoke reopen)
+    execute_process(COMMAND "${ARGUS_DESKTOP}" "--ui-fleet-${mode}" "${data}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 40)
+    if(NOT result STREQUAL "0" OR NOT output MATCHES "\"fleetAudits\":true")
+        message(FATAL_ERROR "Fleet ${mode} failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
+    endif()
+    message(STATUS "${output}")
+endforeach()
+file(REMOVE_RECURSE "${data}")

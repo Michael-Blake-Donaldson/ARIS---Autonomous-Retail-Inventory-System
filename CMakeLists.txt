@@ -123,6 +123,7 @@ target_link_libraries(argus-headless PRIVATE argus_app)
 argus_project_target(argus-headless)
 
 if(WIN32)
+    enable_language(RC)
     find_package(SDL3 CONFIG REQUIRED)
     find_package(OpenGL REQUIRED)
     find_package(imgui CONFIG REQUIRED)
@@ -131,9 +132,17 @@ if(WIN32)
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/fictional-catalog.csv"
         ARGUS_OPERATIONS_CATALOG)
     configure_file(cmake/operations_fixture.hpp.in generated/operations_fixture.hpp @ONLY)
+    configure_file(cmake/fleet_photos.rc.in generated/fleet_photos.rc @ONLY)
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/fleet_photos.rc"
+        APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/photos/990-01-0001.bmp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/photos/990-02-0001.bmp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/inventory/photos/990-03-0001.bmp")
     add_executable(argus-desktop apps/argus-desktop/main.cpp apps/argus-desktop/live_engine.cpp
-        apps/argus-desktop/panels.cpp
-        apps/argus-desktop/scene.cpp apps/argus-desktop/workbench.cpp)
+        apps/argus-desktop/panels.cpp apps/argus-desktop/fleet.cpp
+        apps/argus-desktop/fleet_photos.cpp apps/argus-desktop/fleet_panel.cpp
+        apps/argus-desktop/scene.cpp apps/argus-desktop/workbench.cpp
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/fleet_photos.rc")
     target_compile_definitions(argus-desktop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(argus-desktop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_link_libraries(argus-desktop PRIVATE argus_app argus_operations_model argus_navigation argus_mission_sim
@@ -232,6 +241,11 @@ if(BUILD_TESTING)
         if(ARGUS_ENABLE_NATIVE_UI_TESTS)
             add_test(NAME argus-desktop.operations COMMAND argus-desktop --ui-smoke)
             set_tests_properties(argus-desktop.operations PROPERTIES TIMEOUT 70 RUN_SERIAL TRUE)
+            add_test(NAME argus-desktop.fleet
+                COMMAND ${CMAKE_COMMAND} "-DARGUS_DESKTOP=$<TARGET_FILE:argus-desktop>"
+                    "-DARGUS_FLEET_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fleet_smoke.cmake")
+            set_tests_properties(argus-desktop.fleet PROPERTIES TIMEOUT 85 RUN_SERIAL TRUE)
         endif()
     endif()
 endif()

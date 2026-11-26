@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fleet_panel.hpp"
 #include "scene.hpp"
 #include "workbench.hpp"
 
@@ -18,21 +19,26 @@ class Panels {
   public:
     Panels(std::unique_ptr<LiveEngine> &live, bool routed, bool paced,
            std::optional<std::filesystem::path> directory = {})
-        : live_{live}, routed_{routed}, run_{live->frame().run},
+        : live_{live}, routed_{routed}, run_{live->frame().run}, directory_{directory},
           workbench_{std::move(directory), paced} {}
     void poll();
     void dispatch();
     void cancel_pending() noexcept;
     [[nodiscard]] LiveFrame frame() const noexcept;
+    [[nodiscard]] LiveFrame display_frame() const noexcept;
+    [[nodiscard]] Overlays display_overlays(const LiveFrame &frame) const noexcept;
+    void tick_fleet(std::uint64_t due, bool focused);
+    void hold_fleet();
     [[nodiscard]] bool reviewing() const noexcept { return saved_map_.has_value(); }
     [[nodiscard]] bool worker_driving() const noexcept { return !live_; }
     void interrupt(bool emergency = false) noexcept { workbench_.interrupt(emergency); }
     void request(LiveAction value) noexcept { action = prioritize(action, value); }
-    [[nodiscard]] Canvas draw(const LiveFrame &frame, bool focused);
+    [[nodiscard]] Canvas draw(bool focused, const FleetPhotos &photos);
     [[nodiscard]] bool queue(Job job);
     void seed_benchmark();
 
     Panel panel{Panel::overview};
+    FleetPanel fleet;
     Camera camera;
     Overlays overlays;
     LiveAction action{LiveAction::none};
@@ -90,6 +96,7 @@ class Panels {
     bool saved_ready_{};
     bool archive_ready_{};
     bool close_review_pending_{};
+    std::optional<std::filesystem::path> directory_;
     Workbench workbench_;
     std::vector<inventory::Product> products_;
     std::optional<inventory::Dpci> catalog_cursor_;

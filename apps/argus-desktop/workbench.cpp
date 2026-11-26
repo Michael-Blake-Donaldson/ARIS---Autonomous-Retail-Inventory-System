@@ -1,6 +1,7 @@
 #include "workbench.hpp"
 
 #include "argus/mission/simulation.hpp"
+#include "fleet_report.hpp"
 #include "operations_fixture.hpp"
 
 #include <algorithm>
@@ -115,6 +116,47 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
         result.audit =
             checked(audit::run_observed(catalog, request, inventory::SessionId{next_id()}, *live));
         result.status = "Investigation complete";
+        break;
+    }
+    case JobKind::shelf_audit: {
+        if (!live || !job.shelf) {
+            throw std::string{"Shelf audit requires a live robot"};
+        }
+        const audit::AuditAisle scope{inventory::AisleId{job.text}};
+        auto report = checked(audit::run_shelf(catalog, scope, inventory::SessionId{next_id()},
+                                               job.shelf->robot, *live));
+        if (report.visits.size() != 2 || std::ranges::any_of(report.visits, [](const auto &visit) {
+                return visit.frames < audit::min_coverage_frames;
+            })) {
+            throw std::string{"Shelf coverage incomplete. Retry the audit."};
+        }
+        std::vector<inventory::Product> products;
+        for (const auto &quantity : report.quantities) {
+            products.push_back(checked(catalog.find(quantity.product)).product);
+        }
+        const auto detail = make_shelf_report(report, products);
+        if (!detail) {
+            throw std::string{"Shelf audit product records are incomplete"};
+        }
+        const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+        auto encoded = encode_shelf_report(*detail);
+        if (millis <= 0 || !decode_shelf_report(encoded)) {
+            throw std::string{"Shelf audit exceeds its review limits"};
+        }
+        mission::ShelfAudit saved{job.shelf->location,
+                                  job.shelf->robot,
+                                  job.shelf->run,
+                                  report.session.value(),
+                                  static_cast<std::uint64_t>(millis),
+                                  std::move(encoded)};
+        if (job.shelf->journal) {
+            auto journal = checked(mission::Store::open(*job.shelf->journal));
+            checked(journal.save_shelf_audit(saved));
+        }
+        result.shelf = std::move(saved);
+        result.status = "Shelf audit complete";
         break;
     }
     case JobKind::scan_mission:

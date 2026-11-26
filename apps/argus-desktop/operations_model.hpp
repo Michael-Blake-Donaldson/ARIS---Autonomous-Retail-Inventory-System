@@ -21,8 +21,14 @@ enum class Panel {
     missions,
     history,
     settings,
-    diagnostics
+    diagnostics,
+    fleet,
+    maintenance,
+    locations
 };
+[[nodiscard]] constexpr bool fleet_panel(Panel panel) noexcept {
+    return panel == Panel::fleet || panel == Panel::maintenance || panel == Panel::locations;
+}
 enum class CameraMode { orbit, plan, follow };
 [[nodiscard]] inline CameraMode view_camera_mode(CameraMode mode, bool archived) noexcept {
     return archived && mode == CameraMode::follow ? CameraMode::plan : mode;
@@ -47,9 +53,10 @@ class DriveInput {
 
 [[nodiscard]] LiveAction prioritize(LiveAction pending, LiveAction requested) noexcept;
 
-inline constexpr std::array<std::string_view, 8> panel_names{
-    "Overview", "Live Map",          "Find Product", "Inventory Audit",
-    "Missions", "Lineage / History", "Settings",     "Diagnostics"};
+inline constexpr std::array<std::string_view, 11> panel_names{
+    "Overview", "Live Map",          "Find Product",   "Inventory Audit",
+    "Missions", "Lineage / History", "Settings",       "Diagnostics",
+    "Fleet",    "Robot Maintenance", "Location Audits"};
 
 struct Overlays {
     bool lidar{true};

@@ -16,6 +16,7 @@ enum class JobKind {
     lookup,
     find,
     audit,
+    shelf_audit,
     scan_mission,
     dock_mission,
     inspect_mission,
@@ -25,6 +26,13 @@ enum class JobKind {
     reopen_run
 };
 
+struct ShelfAssignment {
+    inventory::BinId location;
+    RobotId robot;
+    RunId run;
+    std::optional<std::filesystem::path> journal;
+};
+
 struct Job {
     JobKind kind;
     std::string text{};
@@ -32,6 +40,7 @@ struct Job {
     std::optional<MissionId> subject{};
     std::unique_ptr<LiveEngine> live{};
     std::optional<mission::SavedRun> archive{};
+    std::optional<ShelfAssignment> shelf{};
 };
 
 struct WorkResult {
@@ -45,6 +54,7 @@ struct WorkResult {
     std::unique_ptr<LiveEngine> live{};
     std::optional<mission::SavedRun> archive{};
     std::string review_text{};
+    std::optional<mission::ShelfAudit> shelf{};
 };
 
 class Workbench {

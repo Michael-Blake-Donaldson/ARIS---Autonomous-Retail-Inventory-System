@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -24,7 +25,10 @@ using namespace argus;
 using namespace argus::desktop;
 using app::Error;
 
-enum class Mode { interactive, smoke, tour, record, reopen };
+enum class Mode { interactive, smoke, tour, record, reopen, fleet_smoke, fleet_reopen };
+bool fleet_probe(Mode mode) noexcept {
+    return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen;
+}
 constexpr auto title = "ARGUS Operations Center";
 std::optional<std::filesystem::path> operations_directory;
 
@@ -77,6 +81,9 @@ class Graphics {
         configure_style();
         platform_ = ImGui_ImplSDL3_InitForOpenGL(window_, context_);
         renderer_ = platform_ && ImGui_ImplOpenGL2_Init();
+        if (renderer_) {
+            photos_.load();
+        }
         return renderer_;
     }
 
@@ -86,6 +93,7 @@ class Graphics {
     }
 
     void event(const SDL_Event &event) const { ImGui_ImplSDL3_ProcessEvent(&event); }
+    [[nodiscard]] bool photos_ready() const noexcept { return photos_.ready(); }
 
     bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
               Recorder *recorder, std::optional<double> *scene_ms = nullptr) const {
@@ -103,8 +111,8 @@ class Graphics {
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        const auto frame = ui.frame();
-        const auto canvas = ui.draw(frame, focused);
+        const auto canvas = ui.draw(focused, photos_);
+        const auto frame = ui.display_frame();
         const auto display = ImGui::GetIO().DisplaySize;
         ImGui::Render();
         if (display.x <= 0 || display.y <= 0) {
@@ -124,15 +132,16 @@ class Graphics {
                                 height - static_cast<int>((canvas.y + canvas.height) * sy),
                                 static_cast<int>(canvas.width * sx),
                                 static_cast<int>(canvas.height * sy)};
-        const auto regions =
-            demo_scene && !frame.archived ? ui.regions() : std::span<const EvidenceRegion>{};
-        const auto overlays =
-            frame.archived ? Overlays{.lidar = false, .occupancy = true} : ui.overlays;
+        const bool fleet_view = fleet_panel(ui.panel);
+        const auto regions = demo_scene && !frame.archived && !fleet_view
+                                 ? ui.regions()
+                                 : std::span<const EvidenceRegion>{};
+        const auto overlays = ui.display_overlays(frame);
         auto camera = ui.camera;
         camera.mode = view_camera_mode(camera.mode, frame.archived);
         const auto scene_started = scene_ms ? SDL_GetPerformanceCounter() : 0;
         scene.draw(viewport, frame, camera, overlays, regions, developer ? &*developer : nullptr,
-                   frame.archived || ui.map_only);
+                   frame.archived || (!fleet_view && ui.map_only));
         if (scene_ms) {
             *scene_ms = static_cast<double>(SDL_GetPerformanceCounter() - scene_started) * 1000.0 /
                         static_cast<double>(SDL_GetPerformanceFrequency());
@@ -148,6 +157,7 @@ class Graphics {
     void close() {
         if (context_) {
             SDL_GL_MakeCurrent(window_, context_);
+            photos_.clear();
             if (imgui_) {
                 if (renderer_) {
                     ImGui_ImplOpenGL2_Shutdown();
@@ -170,6 +180,7 @@ class Graphics {
     ImGuiContext *imgui_{};
     bool platform_{};
     bool renderer_{};
+    FleetPhotos photos_;
 };
 
 class Controls {
@@ -509,6 +520,107 @@ class Tour {
     std::size_t max_rows_{};
 };
 
+class FleetProbe {
+  public:
+    explicit FleetProbe(Mode mode) : reopen_{mode == Mode::fleet_reopen} {}
+
+    [[nodiscard]] std::optional<bool> advance(Panels &ui, bool photos_ready) {
+        auto *fleet = ui.fleet.get();
+        if (!fleet || !photos_ready || fleet->history_error()) {
+            std::cerr << "Fleet probe could not load robots, saved data or product photos\n";
+            return false;
+        }
+        if (SDL_GetTicks() - started_ > 30000) {
+            std::cerr << "Fleet probe timed out. Robot 1: " << fleet->status(0)
+                      << ". Robot 2: " << fleet->status(1) << '\n';
+            return false;
+        }
+        if (!reopen_ && !queued_ && !fleet->busy(0) && !fleet->busy(1)) {
+            if (fleet->state(0) != ShelfState::pending || fleet->state(1) != ShelfState::pending ||
+                !fleet->queue(0) || !fleet->queue(1)) {
+                std::cerr << "Fleet smoke requires a fresh data directory\n";
+                return false;
+            }
+            queued_ = true;
+            ui.panel = Panel::maintenance;
+        }
+        if (queued_) {
+            observe_maintenance(ui, *fleet);
+        }
+        if (fleet->state(0) != ShelfState::complete || fleet->state(1) != ShelfState::complete) {
+            return std::nullopt;
+        }
+        if (ui.panel != Panel::locations) {
+            ui.panel = Panel::locations;
+            ui.fleet.select(0);
+            return std::nullopt;
+        }
+        if (!rendered_) {
+            return std::nullopt;
+        }
+        if (ui.fleet.selected() == 0) {
+            ui.fleet.select(1);
+            return std::nullopt;
+        }
+        return summarize(*fleet);
+    }
+
+    void drawn() noexcept { rendered_ = true; }
+
+  private:
+    void observe_maintenance(Panels &ui, const Fleet &fleet) {
+        concurrent_ = concurrent_ || (fleet.state(0) == ShelfState::auditing &&
+                                      fleet.state(1) == ShelfState::auditing &&
+                                      fleet.frame(0).navigation && fleet.frame(1).navigation);
+        if (ui.panel != Panel::maintenance) {
+            return;
+        }
+        const auto i = ui.fleet.selected();
+        const auto display = ui.display_frame();
+        const auto overlays = ui.display_overlays(display);
+        if (overlays.lidar && overlays.trace && display.map.scan == ScanState::fresh &&
+            display.lidar && display.trace.size() > 2 &&
+            std::abs(display.telemetry.measured.linear.value()) > 0.01) {
+            maintenance_[i] = true;
+            if (!maintenance_[(i + 1) % maintenance_.size()]) {
+                ui.fleet.select((i + 1) % maintenance_.size());
+            }
+        }
+    }
+
+    [[nodiscard]] bool summarize(const Fleet &fleet) const {
+        const auto &soft = fleet.history(0).front();
+        const auto &tech = fleet.history(1).front();
+        const auto &products = soft.report.products;
+        const auto &tech_products = tech.report.products;
+        const bool valid =
+            soft.audit.robot == RobotId{1} && tech.audit.robot == RobotId{2} &&
+            soft.audit.run != tech.audit.run && products.size() == 2 &&
+            products[0].product.id.value == "990-01-0001" && products[0].observed > 0 &&
+            products[1].product.id.value == "990-02-0001" && products[1].expected == 2 &&
+            products[1].observed == 0 && !tech_products.empty() &&
+            tech_products.back().product.id.value == "990-03-0001" &&
+            tech_products.back().observed > 0;
+        if (!valid ||
+            (!reopen_ && (!concurrent_ || !std::ranges::all_of(maintenance_, std::identity{})))) {
+            std::cerr << "Fleet probe did not observe the expected motion and audit evidence\n";
+            return false;
+        }
+        std::cout << "{\"fleetAudits\":true,\"photosLoaded\":true,\"zeroReadProduct\":true,"
+                  << (reopen_ ? "\"reopenedAfterRestart\":true}"
+                              : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
+                  << '\n';
+        return true;
+    }
+
+    bool reopen_;
+    Uint64 started_{SDL_GetTicks()};
+    bool queued_{};
+    bool concurrent_{};
+    bool rendered_{};
+    std::array<bool, Fleet::locations.size()> maintenance_{};
+};
+
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
                  bool demo_scene) {
     Graphics graphics{window};
@@ -517,7 +629,12 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     }
     Scene scene{engine->layout()};
     Panels ui{engine, demo_scene, mode != Mode::smoke, operations_directory};
-    Tour tour{mode, ui};
+    const bool verification = fleet_probe(mode);
+    Tour tour{verification ? Mode::interactive : mode, ui};
+    if (verification || (mode == Mode::interactive && demo_scene)) {
+        ui.fleet.open(operations_directory);
+        ui.panel = mode == Mode::fleet_reopen ? Panel::locations : Panel::fleet;
+    }
     Controls controls;
     std::optional<Recorder> recorder;
     if (mode == Mode::record) {
@@ -526,8 +643,13 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     auto *capture = recorder ? &*recorder : nullptr;
     auto last_step = SDL_GetTicks();
     bool pending_stop = false;
+    std::optional<FleetProbe> probe;
+    if (verification) {
+        probe.emplace(mode);
+    }
     const auto hold = [&] {
         controls.disarm();
+        ui.hold_fleet();
         if (engine) {
             engine->finish_job(false);
         } else {
@@ -571,9 +693,24 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             due = 1;
             last_step = now;
             controls.disarm();
+            ui.hold_fleet();
             ui.request(LiveAction::pause);
         } else {
             last_step += due * robot::step_ms;
+        }
+        if (ui.action == LiveAction::emergency_stop) {
+            ui.hold_fleet();
+        }
+        ui.tick_fleet(due, focused);
+        if (fleet_panel(ui.panel)) {
+            controls.disarm();
+        }
+        if (probe) {
+            if (const auto result = probe->advance(ui, graphics.photos_ready())) {
+                hold();
+                return *result ? app::Status{std::monostate{}}
+                               : app::Status{Error::graphics_present};
+            }
         }
         if (!focused || ui.action == LiveAction::pause || ui.action == LiveAction::emergency_stop) {
             ui.cancel_pending();
@@ -613,6 +750,9 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
                 !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr)) {
                 return Error::graphics_present;
             }
+        }
+        if (probe && !minimized && ui.panel == Panel::locations) {
+            probe->drawn();
         }
         const double elapsed = static_cast<double>(SDL_GetPerformanceCounter() - before) * 1000.0 /
                                static_cast<double>(SDL_GetPerformanceFrequency());
@@ -678,13 +818,20 @@ app::Status smoke(const app::Options &options) { return desktop(options, Mode::s
 app::Status tour(const app::Options &options) { return desktop(options, Mode::tour); }
 app::Status record(const app::Options &options) { return desktop(options, Mode::record); }
 app::Status reopen(const app::Options &options) { return desktop(options, Mode::reopen); }
+app::Status verify_fleet(const app::Options &options) {
+    return desktop(options, Mode::fleet_smoke);
+}
+app::Status reopen_fleet(const app::Options &options) {
+    return desktop(options, Mode::fleet_reopen);
+}
 
 } // namespace
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
     if (argc == 3 &&
-        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen")) {
+        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
+         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             return 2;
@@ -694,9 +841,11 @@ int main(int argc, char **argv) {
         } catch (const std::exception &) {
             return 2;
         }
-        const auto entry = option == "--ui-smoke"    ? smoke
-                           : option == "--ui-reopen" ? reopen
-                                                     : interactive;
+        const auto entry = option == "--ui-smoke"          ? smoke
+                           : option == "--ui-reopen"       ? reopen
+                           : option == "--ui-fleet-smoke"  ? verify_fleet
+                           : option == "--ui-fleet-reopen" ? reopen_fleet
+                                                           : interactive;
         return app::run_application(1, argv, "argus-desktop", entry);
     }
     if (argc == 2 && std::string_view{argv[1]} == "--ui-smoke") {
