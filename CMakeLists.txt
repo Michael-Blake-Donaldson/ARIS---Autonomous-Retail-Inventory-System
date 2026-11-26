@@ -81,8 +81,9 @@ target_link_libraries(argus_audit PUBLIC argus_inventory argus_navigation
     PRIVATE nlohmann_json::nlohmann_json)
 argus_project_target(argus_audit)
 
-add_library(argus_audit_sim STATIC src/audit/demo.cpp)
-target_link_libraries(argus_audit_sim PUBLIC argus_audit PRIVATE argus_sensors)
+add_library(argus_audit_sim STATIC src/audit/demo.cpp src/audit/stockroom.cpp)
+target_link_libraries(argus_audit_sim PUBLIC argus_audit
+    PRIVATE argus_sensors nlohmann_json::nlohmann_json)
 argus_project_target(argus_audit_sim)
 
 add_library(argus_mission STATIC src/mission/model.cpp src/mission/store.cpp)
@@ -157,9 +158,9 @@ if(BUILD_TESTING)
         tests/unit/geometry_test.cpp tests/unit/warehouse_test.cpp tests/unit/robot_test.cpp
         tests/unit/sensors_test.cpp tests/unit/mapping_test.cpp tests/unit/map_io_test.cpp
         tests/unit/navigation_test.cpp tests/unit/inventory_test.cpp tests/unit/audit_test.cpp
-        tests/unit/mission_test.cpp tests/unit/operations_test.cpp)
+        tests/unit/mission_test.cpp tests/unit/operations_test.cpp tests/unit/stockroom_test.cpp)
     target_link_libraries(argus_unit_tests PRIVATE argus_app argus_sensors argus_mapping
-        argus_navigation argus_inventory argus_audit argus_mission argus_operations_model
+        argus_navigation argus_inventory argus_audit_sim argus_mission argus_operations_model
         unofficial::sqlite3::sqlite3 GTest::gtest_main)
     argus_project_target(argus_unit_tests)
     gtest_discover_tests(argus_unit_tests DISCOVERY_MODE PRE_TEST)
