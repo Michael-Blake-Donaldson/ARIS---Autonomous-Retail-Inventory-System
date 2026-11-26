@@ -77,9 +77,15 @@ Fleet::Fleet(const std::optional<std::filesystem::path> &directory) : history_(l
 
 bool Fleet::ready() const noexcept { return units_.back() != nullptr; }
 
+simulation::FleetStop Fleet::stop_reason() const noexcept { return clock_->stop_reason(); }
+
+bool Fleet::motion_available() const noexcept {
+    return stop_reason() == simulation::FleetStop::running;
+}
+
 bool Fleet::queue(std::size_t robot, std::size_t location) {
-    if (!ready() || robot >= units_.size() || location >= history_.size() || busy(robot) ||
-        state(location) == ShelfState::auditing || aisle_retained(robot)) {
+    if (!ready() || !motion_available() || robot >= units_.size() || location >= history_.size() ||
+        busy(robot) || state(location) == ShelfState::auditing || aisle_retained(robot)) {
         return false;
     }
     auto &unit = *units_[robot];
@@ -157,7 +163,8 @@ void Fleet::receive_review() {
 }
 
 bool Fleet::clear_aisle(std::size_t robot) {
-    if (!ready() || robot >= units_.size() || busy(robot) || !aisle_retained(robot)) {
+    if (!ready() || !motion_available() || robot >= units_.size() || busy(robot) ||
+        !aisle_retained(robot)) {
         return false;
     }
     auto &unit = *units_[robot];

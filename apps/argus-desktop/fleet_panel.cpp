@@ -39,7 +39,14 @@ DashboardPoint item_center() {
     return {(low.x + high.x) / 2.0F, (low.y + high.y) / 2.0F};
 }
 
-const char *hold_reason(const LiveFrame &frame, std::string_view activity, bool aisle_retained) {
+const char *hold_reason(const LiveFrame &frame, std::string_view activity, bool aisle_retained,
+                        simulation::FleetStop clock_status) {
+    if (clock_status == simulation::FleetStop::peer_timeout) {
+        return "Fleet worker stalled. Restart ARGUS.";
+    }
+    if (clock_status == simulation::FleetStop::invalid_pair) {
+        return "Fleet clock is out of sync. Restart ARGUS.";
+    }
     if (frame.traffic_yield) {
         return "Waiting for shared aisle";
     }
@@ -190,13 +197,16 @@ void FleetPanel::robots(Panel &panel) {
         }
         const auto assigned = fleet.assignment(i);
         const bool working = assigned && fleet.busy(i);
-        if (working) {
+        if (frame.returning_to_berth) {
+            ImGui::TextWrapped("Audit saved. Returning to berth.");
+        } else if (working) {
             ImGui::TextDisabled("Auditing %s", Fleet::locations()[*assigned].id.value.c_str());
         } else if (!fleet.busy(i)) {
             ImGui::TextDisabled("Idle");
         }
         const auto activity = fleet.status(i);
-        if (const auto *reason = hold_reason(frame, activity, fleet.aisle_retained(i))) {
+        if (const auto *reason =
+                hold_reason(frame, activity, fleet.aisle_retained(i), fleet.stop_reason())) {
             layout_.hold_visible = true;
             ImGui::TextColored(auditing, "%s", frame.traffic_yield ? "Yielding" : "Hold");
             ImGui::SameLine();
@@ -242,9 +252,10 @@ void FleetPanel::robots(Panel &panel) {
         panel = Panel::locations;
     }
     if (fleet.aisle_retained(selected_)) {
-        ImGui::BeginDisabled(fleet.busy(selected_));
+        const bool can_return = fleet.motion_available() && !fleet.busy(selected_);
+        ImGui::BeginDisabled(!can_return);
         const bool returning = ImGui::Button("Return to berth", {-1, 0});
-        if (!fleet.busy(selected_)) {
+        if (can_return) {
             layout_.return_to_berth = item_center();
         }
         if (returning) {
@@ -252,7 +263,7 @@ void FleetPanel::robots(Panel &panel) {
         }
         ImGui::EndDisabled();
     } else {
-        ImGui::BeginDisabled(fleet.busy(selected_) ||
+        ImGui::BeginDisabled(!fleet.motion_available() || fleet.busy(selected_) ||
                              fleet.state(location_) == ShelfState::auditing);
         if (ImGui::Button(history.empty() ? "Start location audit" : "Re-audit location",
                           {-1, 0})) {
@@ -409,10 +420,11 @@ void FleetPanel::draw_map() {
         if (!marker("##robot-marker", at, {14.0F, 14.0F}, i, false)) {
             continue;
         }
-        const auto color = hold_reason(robot, fleet->status(i), fleet->aisle_retained(i))
-                               ? IM_COL32(255, 181, 87, 255)
-                           : i == selected_ ? IM_COL32(103, 235, 212, 255)
-                                            : IM_COL32(197, 206, 218, 255);
+        const auto color =
+            hold_reason(robot, fleet->status(i), fleet->aisle_retained(i), fleet->stop_reason())
+                ? IM_COL32(255, 181, 87, 255)
+            : i == selected_ ? IM_COL32(103, 235, 212, 255)
+                             : IM_COL32(197, 206, 218, 255);
         draw.AddCircleFilled(at, 12.0F, color);
         const char label = static_cast<char>('1' + i);
         centered_text(draw, at, IM_COL32(15, 27, 36, 255), {&label, 1});
@@ -540,8 +552,8 @@ void FleetPanel::maintenance() {
     ImGui::Text("Localization  %s", frame.map.pose == PoseState::current     ? "Current"
                                     : frame.map.pose == PoseState::uncertain ? "Uncertain"
                                                                              : "Waiting");
-    if (const auto *reason =
-            hold_reason(frame, fleet.status(selected_), fleet.aisle_retained(selected_))) {
+    if (const auto *reason = hold_reason(frame, fleet.status(selected_),
+                                         fleet.aisle_retained(selected_), fleet.stop_reason())) {
         ImGui::TextColored(auditing, "%s", frame.traffic_yield ? "Yielding" : "Hold");
         ImGui::TextWrapped("%s", reason);
     } else if (frame.navigation) {
@@ -587,7 +599,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     const auto history = fleet->history(location_);
     if (history.empty()) {
         ImGui::TextDisabled("No completed audit");
-        ImGui::BeginDisabled(fleet->busy(selected_) ||
+        ImGui::BeginDisabled(!fleet->motion_available() || fleet->busy(selected_) ||
                              fleet->state(location_) == ShelfState::auditing);
         if (ImGui::Button("Start location audit")) {
             static_cast<void>(fleet->queue(selected_, location_));
@@ -635,8 +647,8 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     }
     if (selected == history.begin()) {
         const bool active = fleet->state(location_) == ShelfState::auditing;
-        const bool can_recheck =
-            !active && !fleet->busy(selected_) && !fleet->aisle_retained(selected_);
+        const bool can_recheck = fleet->motion_available() && !active && !fleet->busy(selected_) &&
+                                 !fleet->aisle_retained(selected_);
         ImGui::BeginDisabled(!can_recheck);
         const bool recheck = ImGui::Button("Re-audit location");
         if (can_recheck) {

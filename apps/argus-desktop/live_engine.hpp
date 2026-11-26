@@ -31,6 +31,7 @@ struct ObservedFrame {
     bool archived{};
     std::uint64_t map_revision{};
     bool traffic_yield{};
+    bool returning_to_berth{};
 };
 
 struct FleetAttachment {
@@ -53,6 +54,7 @@ class LiveEngine {
     void observe_job(const navigation::Navigator &navigator, const sensors::RfidScan *scan);
     void finish_job(bool emergency);
     void traffic_yield(bool yielding) noexcept { traffic_yield_ = yielding; }
+    void returning_to_berth() noexcept { returning_to_berth_ = true; }
 
   private:
     LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
@@ -81,6 +83,7 @@ class LiveEngine {
     RunId id_;
     std::optional<FleetAttachment> fleet_;
     bool traffic_yield_{};
+    bool returning_to_berth_{};
 };
 
 } // namespace argus::desktop

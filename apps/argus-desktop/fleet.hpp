@@ -33,6 +33,8 @@ class Fleet {
 
     explicit Fleet(const std::optional<std::filesystem::path> &directory);
     [[nodiscard]] bool ready() const noexcept;
+    [[nodiscard]] simulation::FleetStop stop_reason() const noexcept;
+    [[nodiscard]] bool motion_available() const noexcept;
     [[nodiscard]] bool queue(std::size_t robot, std::size_t location);
     [[nodiscard]] bool review(std::size_t location, mission::ShelfAuditKey key);
     [[nodiscard]] bool review_pending() const noexcept { return review_.has_value(); }

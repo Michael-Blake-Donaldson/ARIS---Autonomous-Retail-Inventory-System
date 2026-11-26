@@ -625,7 +625,9 @@ class FleetProbe {
         watch_motion,
         wait_for_hold,
         return_to_berth,
-        verify_clearance
+        verify_clearance,
+        watch_saved_return,
+        verify_saved_audit
     };
 
     bool click(std::optional<DashboardPoint> desired) {
@@ -720,6 +722,44 @@ class FleetProbe {
             break;
         case Review::verify_clearance:
             if (fleet.status(1) == "Aisle released" && !fleet.aisle_retained(1)) {
+                if (recording_) {
+                    return summarize(fleet);
+                }
+                previous_audits_ = fleet.history(waco_).size();
+                if (fleet.queue(1, waco_)) {
+                    review_ = Review::watch_saved_return;
+                }
+            }
+            break;
+        case Review::watch_saved_return:
+            if (fleet.frame(1).returning_to_berth) {
+                fleet.hold();
+                review_ = Review::verify_saved_audit;
+            }
+            break;
+        case Review::verify_saved_audit:
+            if (!fleet.busy(1)) {
+                const auto history = fleet.history(waco_);
+                if (!fleet.aisle_retained(1) || history.size() < 2 ||
+                    history.size() != previous_audits_ + 1 ||
+                    history.front().audit.recheck_of != history[1].audit.key() ||
+                    !operations_directory) {
+                    std::cerr << "Saved audit or held aisle was lost after return interruption\n";
+                    return false;
+                }
+                auto opened = mission::Store::open(*operations_directory / "missions.db");
+                auto *journal = std::get_if<mission::Store>(&opened);
+                if (!journal) {
+                    return false;
+                }
+                auto rows = journal->shelf_history(history.front().audit.location);
+                const auto *saved = std::get_if<std::vector<mission::ShelfAudit>>(&rows);
+                if (!saved || saved->size() != history.size() ||
+                    saved->front().key() != history.front().audit.key() ||
+                    saved->front().report != history.front().audit.report) {
+                    return false;
+                }
+                audit_saved_after_hold_ = true;
                 return summarize(fleet);
             }
             break;
@@ -776,9 +816,12 @@ class FleetProbe {
                << ",\"wacoUnresolved\":" << tech.report.unresolved.size() << ','
                << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
                              "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
-                             "\"holdVisible\":true,\"returnedToBerth\":true}"
-                           : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
-               << '\n';
+                             "\"holdVisible\":true,\"returnedToBerth\":true"
+                           : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true");
+        if (audit_saved_after_hold_) {
+            output << ",\"auditSavedAfterHold\":true";
+        }
+        output << "}\n";
         return true;
     }
 
@@ -787,6 +830,8 @@ class FleetProbe {
     Uint64 started_{SDL_GetTicks()};
     Uint64 ready_after_{started_ + 1100};
     bool queued_{};
+    bool audit_saved_after_hold_{};
+    std::size_t previous_audits_{};
     bool concurrent_{};
     bool rendered_{};
     Review review_{Review::zoom};

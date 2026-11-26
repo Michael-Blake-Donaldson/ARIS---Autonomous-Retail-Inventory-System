@@ -49,6 +49,13 @@ template <typename T, typename E> T checked(Result<T, E> result) {
     throw std::string{label(std::get<E>(result))};
 }
 
+const char *fleet_stop_status(simulation::FleetStop reason) noexcept {
+    return reason == simulation::FleetStop::peer_timeout ? "Fleet worker stalled. Restart ARGUS."
+           : reason == simulation::FleetStop::invalid_pair
+               ? "Fleet clock is out of sync. Restart ARGUS."
+               : "Shared simulation stopped";
+}
+
 std::optional<nlohmann::json> archive_report(const mission::SavedRun &saved,
                                              inventory::Repository &catalog,
                                              mission::Store &store) {
@@ -177,9 +184,6 @@ WorkResult process(Job &job, inventory::Repository &catalog, mission::Store &mis
         const auto *evidence = std::get_if<audit::LocationSurvey>(&survey);
         if (!evidence) {
             throw std::string{"Location coverage incomplete. Retry the audit."};
-        }
-        if (fleet && !audit::return_to_berth(*live, fleet->id)) {
-            throw std::string{"Robot could not clear the aisle"};
         }
         const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
@@ -375,7 +379,10 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                     available_ = false;
                     busy_ = false;
                     pending_.reset();
-                    result_ = WorkResult{.status = "Shared simulation stopped"};
+                    if (!result_) {
+                        result_ =
+                            WorkResult{.status = fleet_stop_status(fleet->clock->stop_reason())};
+                    }
                     return;
                 }
                 const auto live = fleet->engine->frame();
@@ -432,9 +439,17 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                 }
                 result = process(job, catalog, store, sequence, observed ? &*observed : nullptr,
                                  fleet ? &*fleet : nullptr);
+                if (result.shelf && fleet && observed) {
+                    job.live->returning_to_berth();
+                    publish_preview(*job.live);
+                    if (!audit::return_to_berth(*observed, fleet->id)) {
+                        result.status = "Audit saved. Robot could not clear the aisle.";
+                    }
+                }
             } catch (const simulation::RunInterrupted &) {
                 failed = true;
-                result.status = "Run held by operator";
+                result.status = result.shelf ? "Audit saved. Return to berth was interrupted."
+                                             : "Run held by operator";
             } catch (const std::string &error) {
                 failed = true;
                 result.status = error;
@@ -460,12 +475,20 @@ void Workbench::run(std::stop_token stop, const std::optional<std::filesystem::p
                     const auto berth = audit::stockroom_berth(fleet->id).position;
                     const auto &pose = live.telemetry.estimated_pose;
                     const auto error = live.estimate ? live.estimate->distance_error_m : 1000.0;
-                    const bool parked = std::hypot(pose.x.value() - berth.x / 1000.0,
+                    const auto clock_status = fleet->clock->stop_reason();
+                    const bool parked = clock_status == simulation::FleetStop::running &&
+                                        live.map.pose == PoseState::current &&
+                                        std::hypot(pose.x.value() - berth.x / 1000.0,
                                                    pose.y.value() - berth.y / 1000.0) +
                                                 error <
                                             0.55 &&
                                         std::abs(live.telemetry.measured.linear.value()) < 0.025;
                     fleet->access->finish(fleet->id, parked);
+                    if (clock_status != simulation::FleetStop::running) {
+                        result.status = fleet_stop_status(clock_status);
+                    } else if (!parked && result.status == "Aisle released") {
+                        result.status = "Berth clearance could not be confirmed";
+                    }
                     fleet->engine = std::move(job.live);
                     publish_preview(*fleet->engine);
                 } else {

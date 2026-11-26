@@ -18,7 +18,8 @@ foreach(mode IN ITEMS smoke reopen)
         NOT output MATCHES "\"shelfAuditClicks\":2" OR
         NOT output MATCHES "\"selectionPreserved\":true" OR
         NOT output MATCHES "\"holdVisible\":true" OR
-        NOT output MATCHES "\"returnedToBerth\":true"))
+        NOT output MATCHES "\"returnedToBerth\":true" OR
+        NOT output MATCHES "\"auditSavedAfterHold\":true"))
         message(FATAL_ERROR "Dashboard review evidence is incomplete\n${output}")
     endif()
     message(STATUS "${output}")

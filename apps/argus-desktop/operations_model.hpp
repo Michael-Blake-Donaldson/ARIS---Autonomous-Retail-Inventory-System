@@ -114,6 +114,7 @@ struct LiveFrame {
     bool archived{};
     std::uint64_t map_revision{};
     bool traffic_yield{};
+    bool returning_to_berth{};
     [[nodiscard]] bool exploring() const noexcept {
         return navigation && navigation->state != navigation::State::finished;
     }

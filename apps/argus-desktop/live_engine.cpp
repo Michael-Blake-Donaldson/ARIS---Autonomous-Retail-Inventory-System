@@ -43,14 +43,26 @@ ObservedFrame::ObservedFrame(const LiveFrame &frame)
       route(frame.route.begin(), frame.route.end()), trace(frame.trace.begin(), frame.trace.end()),
       reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
       navigation{frame.navigation}, run{frame.run}, archived{frame.archived},
-      map_revision{frame.map_revision}, traffic_yield{frame.traffic_yield} {}
+      map_revision{frame.map_revision}, traffic_yield{frame.traffic_yield},
+      returning_to_berth{frame.returning_to_berth} {}
 
 LiveFrame ObservedFrame::view() const noexcept {
     const auto *scan = lidar ? &*lidar : nullptr;
-    return {telemetry,    grid,         scan,   route,
-            trace,        reads,        unique, map_status(telemetry, scan, estimate),
-            estimate,     navigation,   run,    archived,
-            map_revision, traffic_yield};
+    return {telemetry,
+            grid,
+            scan,
+            route,
+            trace,
+            reads,
+            unique,
+            map_status(telemetry, scan, estimate),
+            estimate,
+            navigation,
+            run,
+            archived,
+            map_revision,
+            traffic_yield,
+            returning_to_berth};
 }
 
 LiveEngine::LiveEngine(simulation::Warehouse warehouse, simulation::RobotSimulation robot,
@@ -240,6 +252,7 @@ void LiveEngine::finish_job(bool emergency) {
     navigator_.reset();
     route_.clear();
     traffic_yield_ = false;
+    returning_to_berth_ = false;
     static_cast<void>(advance({.emergency_stop = emergency}));
 }
 
@@ -259,7 +272,8 @@ LiveFrame LiveEngine::frame() const noexcept {
             id_,
             false,
             mapper_.revision(),
-            traffic_yield_};
+            traffic_yield_,
+            returning_to_berth_};
 }
 
 DiagnosticsFrame LiveEngine::diagnostics() const {
