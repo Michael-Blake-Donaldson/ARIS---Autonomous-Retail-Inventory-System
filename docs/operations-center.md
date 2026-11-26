@@ -38,6 +38,14 @@ Other warehouses support live driving and mapping. The bundled RFID stockroom su
 
 To retain shelf audits across launches, use the same existing `--operations-data DIRECTORY` each time. Otherwise Location Audits uses temporary session history. The last 20 completed audits for each shelf are retained. [Model and storage decisions](decisions/0016-fleet-shelf-audits.md)
 
+## Review discrepancies and re-audit a location
+
+1. In **Location Audits**, turn on **Needs review only**. The list and Fleet's aisle totals are based on the latest report for each location. A completed audit remains green while its discrepancies are under review.
+2. Open a report and check the product counts, unidentified tags and unresolved reads. Choose **Mark reviewed** when you have finished checking the findings. The review timestamp records that someone looked at the report. The quantities and tags remain available in the report.
+3. Select an available robot and choose **Re-audit location**. When it completes, expand **Compare with source audit** to see observed and expected counts side by side by DPCI. A new report with discrepancies appears in the review list again. Open **Audit history** to see the source report and its original review timestamp.
+
+The same operations data directory preserves completed reports, review timestamps and re-audit links. A re-audit interrupted before completion can be queued again. If the retention limit removes the source report, the re-audit still identifies its source by robot, run and session. [Review and retention decisions](decisions/0020-location-review-and-reaudits.md)
+
 ## Save and reopen a run
 
 By default the workbench uses disposable fictional demo databases. To keep evidence across launches, start `argus-desktop --operations-data DIRECTORY` with an existing operator-controlled directory. The desktop opens `catalog.db` and `missions.db` and seeds the fictional catalog when its database is absent. A previously persisted mission remains available as earlier work.
@@ -62,7 +70,7 @@ Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonom
 
 On an interactive test host, pass an existing disposable directory to `--ui-smoke DIRECTORY` and then run `--ui-reopen DIRECTORY` in a second process to verify a durable archive.
 
-Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. Run `--ui-fleet-traffic DIRECTORY` with a second fresh directory to verify yielding and completion of two A20 audits. The CTest entry `argus-desktop.fleet` runs all three commands when native tests are enabled.
+Run `--ui-fleet-smoke DIRECTORY` on a fresh existing disposable directory and then `--ui-fleet-reopen DIRECTORY` to verify both shelf reports after a restart. The reopen test clicks the zoom and shelf controls, opens the audit in two clicks from Fleet, switches to Maintenance with the same selection, and verifies a hold appears in Fleet at 1280 × 720. Run `--ui-fleet-review DIRECTORY` and `--ui-fleet-review-reopen DIRECTORY` on the same directory to verify review and re-audit. Use a second fresh directory for `--ui-fleet-traffic DIRECTORY` to verify yielding and completion of two A20 audits. The CTest entry `argus-desktop.fleet` runs these commands when native tests are enabled.
 
 Use `--ui-dashboard-record DIRECTORY` with the same disposable data to record the three dashboard views during the scripted review. It uses the framebuffer and stderr format below.
 

@@ -248,7 +248,7 @@ if(BUILD_TESTING)
                 COMMAND ${CMAKE_COMMAND} "-DARGUS_DESKTOP=$<TARGET_FILE:argus-desktop>"
                     "-DARGUS_FLEET_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fleet_smoke.cmake")
-            set_tests_properties(argus-desktop.fleet PROPERTIES TIMEOUT 130 RUN_SERIAL TRUE)
+            set_tests_properties(argus-desktop.fleet PROPERTIES TIMEOUT 200 RUN_SERIAL TRUE)
         endif()
     endif()
 endif()

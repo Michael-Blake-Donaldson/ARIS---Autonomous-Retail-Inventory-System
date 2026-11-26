@@ -22,6 +22,23 @@ foreach(mode IN ITEMS smoke reopen)
     endif()
     message(STATUS "${output}")
 endforeach()
+foreach(mode IN ITEMS review review-reopen)
+    execute_process(COMMAND "${ARGUS_DESKTOP}" "--ui-fleet-${mode}" "${data}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 35)
+    if(mode STREQUAL "review-reopen")
+        set(reopened true)
+    else()
+        set(reopened false)
+    endif()
+    if(NOT result STREQUAL "0" OR NOT output MATCHES "\"reviewed\":true" OR
+       NOT output MATCHES "\"reviewFilter\":true" OR
+       NOT output MATCHES "\"recheckLinked\":true" OR
+       NOT output MATCHES "\"comparisonVisible\":true" OR
+       NOT output MATCHES "\"reopened\":${reopened}")
+        message(FATAL_ERROR "Audit ${mode} failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
+    endif()
+    message(STATUS "${output}")
+endforeach()
 file(REMOVE_RECURSE "${data}")
 set(data "${ARGUS_FLEET_ROOT}/fleet-traffic-${run}")
 file(MAKE_DIRECTORY "${data}")
