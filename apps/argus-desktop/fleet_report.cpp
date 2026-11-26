@@ -53,7 +53,8 @@ std::optional<ShelfReport> make_shelf_report(const audit::Report &report,
             shelf.products[product->second].tags.push_back({row.epc, observed});
         }
     }
-    std::ranges::sort(shelf.products, {}, [](const auto &row) { return row.product.id.value; });
+    std::ranges::sort(shelf.products, {},
+                      [](const auto &row) -> const std::string & { return row.product.id.value; });
     return shelf;
 }
 
