@@ -391,6 +391,9 @@ TEST(MissionStore, RejectsForeignSourcesAndPreservesLinksAfterSourceTrimming) {
     EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflicting)), Error::conflict);
     conflicting.recheck_of = conflicting.key();
     EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflicting)), Error::invalid);
+    conflicting.session = 3;
+    conflicting.recheck_of = source.key();
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(conflicting)), Error::conflict);
     for (std::size_t session = 3; session <= shelf_history_limit + 1; ++session) {
         ASSERT_EQ(
             store.save_shelf_audit({source.location, RobotId{2}, RunId{20}, session, 30, "later"})

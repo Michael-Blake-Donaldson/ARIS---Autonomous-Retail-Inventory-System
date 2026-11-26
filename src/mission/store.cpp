@@ -526,12 +526,11 @@ Result<std::monostate, Error> Store::save_shelf_audit(const ShelfAudit &audit) {
             }
         } else if (audit.recheck_of) {
             Statement source{db, R"sql(
-                SELECT 1 FROM shelf_audit
-                WHERE location=?1 AND robot=?2 AND run=?3 AND session=?4
+                SELECT robot,run,session FROM shelf_audit
+                WHERE location=?1 ORDER BY id DESC LIMIT 1 OFFSET 1
             )sql"};
             source.put(1, audit.location.value);
-            bind_key(source, 2, *audit.recheck_of);
-            if (!source.row()) {
+            if (!source.row() || read_source(source, 0) != audit.recheck_of) {
                 throw Error::conflict;
             }
         }
