@@ -11,6 +11,13 @@ foreach(mode IN ITEMS smoke reopen)
     if(NOT result STREQUAL "0" OR NOT output MATCHES "\"fleetAudits\":true")
         message(FATAL_ERROR "Fleet ${mode} failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
     endif()
+    if(mode STREQUAL "reopen" AND
+       (NOT output MATCHES "\"dashboard1280x720\":true" OR
+        NOT output MATCHES "\"shelfAuditClicks\":2" OR
+        NOT output MATCHES "\"selectionPreserved\":true" OR
+        NOT output MATCHES "\"holdVisible\":true"))
+        message(FATAL_ERROR "Dashboard review evidence is incomplete\n${output}")
+    endif()
     message(STATUS "${output}")
 endforeach()
 file(REMOVE_RECURSE "${data}")

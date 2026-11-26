@@ -29,6 +29,10 @@ enum class Mode { interactive, smoke, tour, record, reopen, fleet_smoke, fleet_r
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen;
 }
+struct ProbePointer {
+    DashboardPoint point;
+    bool down;
+};
 constexpr auto title = "ARGUS Operations Center";
 std::optional<std::filesystem::path> operations_directory;
 
@@ -96,7 +100,8 @@ class Graphics {
     [[nodiscard]] bool photos_ready() const noexcept { return photos_.ready(); }
 
     bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
-              Recorder *recorder, std::optional<double> *scene_ms = nullptr) const {
+              Recorder *recorder, std::optional<double> *scene_ms = nullptr,
+              std::optional<ProbePointer> input = {}) const {
         int width{};
         int height{};
         if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) {
@@ -110,6 +115,11 @@ class Graphics {
         }
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplSDL3_NewFrame();
+        if (input) {
+            auto &io = ImGui::GetIO();
+            io.AddMousePosEvent(input->point.x, input->point.y);
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, input->down);
+        }
         ImGui::NewFrame();
         const auto canvas = ui.draw(focused, photos_);
         const auto frame = ui.display_frame();
@@ -529,14 +539,16 @@ class FleetProbe {
     explicit FleetProbe(Mode mode) : reopen_{mode == Mode::fleet_reopen} {}
 
     [[nodiscard]] std::optional<bool> advance(Panels &ui, bool photos_ready) {
+        input_.reset();
         auto *fleet = ui.fleet.get();
         if (!fleet || !photos_ready || fleet->history_error()) {
             std::cerr << "Fleet probe could not load robots, saved data or product photos\n";
             return false;
         }
         if (SDL_GetTicks() - started_ > 30000) {
-            std::cerr << "Fleet probe timed out. Robot 1: " << fleet->status(0)
-                      << ". Robot 2: " << fleet->status(1) << '\n';
+            std::cerr << "Fleet probe timed out in review stage " << static_cast<int>(review_)
+                      << ". Robot 1: " << fleet->status(0) << ". Robot 2: " << fleet->status(1)
+                      << '\n';
             return false;
         }
         if (!reopen_ && !queued_ && !fleet->busy(0) && !fleet->busy(1)) {
@@ -550,6 +562,9 @@ class FleetProbe {
         }
         if (queued_) {
             observe_maintenance(ui, *fleet);
+        }
+        if (reopen_) {
+            return review_dashboard(ui, *fleet);
         }
         if (fleet->state(0) != ShelfState::complete || fleet->state(1) != ShelfState::complete) {
             return std::nullopt;
@@ -570,8 +585,83 @@ class FleetProbe {
     }
 
     void drawn() noexcept { rendered_ = true; }
+    [[nodiscard]] std::optional<ProbePointer> input() const noexcept { return input_; }
 
   private:
+    enum class Review { zoom, select_shelf, open_audit, inspect, queue_hold, wait_for_hold };
+
+    bool click(std::optional<DashboardPoint> desired) {
+        if (pressed_) {
+            input_ = ProbePointer{*pressed_, false};
+            pressed_.reset();
+            return true;
+        }
+        if (desired) {
+            pressed_ = desired;
+            input_ = ProbePointer{*desired, true};
+        }
+        return false;
+    }
+
+    [[nodiscard]] std::optional<bool> review_dashboard(Panels &ui, Fleet &fleet) {
+        const auto &layout = ui.fleet.layout();
+        const auto viewport = ImGui::GetIO().DisplaySize;
+        if (viewport.x != 1280 || viewport.y != 720) {
+            return std::nullopt;
+        }
+        if (layout.horizontal_scroll) {
+            std::cerr << "Dashboard has horizontal overflow at 1280 x 720\n";
+            return false;
+        }
+        switch (review_) {
+        case Review::zoom:
+            if (click(layout.map_zoom)) {
+                review_ = Review::select_shelf;
+            }
+            break;
+        case Review::select_shelf:
+            if (layout.shelf_ids && click(layout.second_shelf)) {
+                review_ = Review::open_audit;
+            }
+            break;
+        case Review::open_audit:
+            if (ui.fleet.selected() == 1 && click(layout.open_audit)) {
+                review_ = Review::inspect;
+            }
+            break;
+        case Review::inspect:
+            if (pressed_ || (ui.panel == Panel::locations && ui.fleet.selected() == 1 &&
+                             layout.products == fleet.history(1).front().report.products.size() &&
+                             layout.products != 0)) {
+                if (click(layout.maintenance)) {
+                    review_ = Review::queue_hold;
+                }
+            }
+            break;
+        case Review::queue_hold:
+            if (ui.panel == Panel::maintenance && ui.fleet.selected() == 1) {
+                const auto overlays = ui.display_overlays(ui.display_frame());
+                if (!overlays.lidar || !overlays.trace) {
+                    return false;
+                }
+                if (fleet.queue(1)) {
+                    ui.panel = Panel::fleet;
+                    review_ = Review::wait_for_hold;
+                }
+            }
+            break;
+        case Review::wait_for_hold:
+            if (fleet.status(1) == "Auditing shelf" && fleet.frame(1).navigation) {
+                fleet.hold();
+            }
+            if (fleet.status(1) == "Run held by operator" && layout.hold_visible) {
+                return summarize(fleet);
+            }
+            break;
+        }
+        return std::nullopt;
+    }
+
     void observe_maintenance(Panels &ui, const Fleet &fleet) {
         concurrent_ = concurrent_ || (fleet.state(0) == ShelfState::auditing &&
                                       fleet.state(1) == ShelfState::auditing &&
@@ -593,6 +683,9 @@ class FleetProbe {
     }
 
     [[nodiscard]] bool summarize(const Fleet &fleet) const {
+        if (fleet.history(0).empty() || fleet.history(1).empty()) {
+            return false;
+        }
         const auto &soft = fleet.history(0).front();
         const auto &tech = fleet.history(1).front();
         const auto &products = soft.report.products;
@@ -611,7 +704,9 @@ class FleetProbe {
             return false;
         }
         std::cout << "{\"fleetAudits\":true,\"photosLoaded\":true,\"zeroReadProduct\":true,"
-                  << (reopen_ ? "\"reopenedAfterRestart\":true}"
+                  << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
+                                "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
+                                "\"holdVisible\":true}"
                               : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true}")
                   << '\n';
         return true;
@@ -622,6 +717,9 @@ class FleetProbe {
     bool queued_{};
     bool concurrent_{};
     bool rendered_{};
+    Review review_{Review::zoom};
+    std::optional<DashboardPoint> pressed_;
+    std::optional<ProbePointer> input_;
     std::array<bool, Fleet::locations.size()> maintenance_{};
 };
 
@@ -637,7 +735,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     Tour tour{verification ? Mode::interactive : mode, ui};
     if (verification || (mode == Mode::interactive && demo_scene)) {
         ui.fleet.open(operations_directory);
-        ui.panel = mode == Mode::fleet_reopen ? Panel::locations : Panel::fleet;
+        ui.panel = Panel::fleet;
     }
     Controls controls;
     std::optional<Recorder> recorder;
@@ -748,7 +846,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         }
         std::optional<double> scene_ms;
         if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture,
-                                         mode == Mode::interactive ? nullptr : &scene_ms)) {
+                                         mode == Mode::interactive ? nullptr : &scene_ms,
+                                         probe ? probe->input() : std::nullopt)) {
             hold();
             if (capture || !graphics.rebuild() ||
                 !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr)) {
@@ -805,9 +904,9 @@ app::Status desktop(const app::Options &options, Mode mode) {
     if (recording && !app::use_binary_mode(stdout)) {
         return Error::output_failure;
     }
+    const bool compact = recording || mode == Mode::fleet_reopen;
     const std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{
-        SDL_CreateWindow(title, recording ? Recorder::width : 1392,
-                         recording ? Recorder::height : 860,
+        SDL_CreateWindow(title, compact ? Recorder::width : 1392, compact ? Recorder::height : 860,
                          recording ? flags : flags | SDL_WINDOW_HIGH_PIXEL_DENSITY),
         SDL_DestroyWindow};
     if (!window) {
