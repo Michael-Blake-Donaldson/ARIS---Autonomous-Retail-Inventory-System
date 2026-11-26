@@ -407,6 +407,50 @@ TEST(MissionStore, RejectsForeignSourcesAndPreservesLinksAfterSourceTrimming) {
     EXPECT_EQ(history.back().recheck_of, source.key());
 }
 
+TEST(MissionStore, FullJournalRollsBackRecheckAndCanAcceptASmallerRetry) {
+    Database db;
+    constexpr auto quota = 96U * 1024U;
+    auto store = std::get<Store>(Store::open(db.file(), quota));
+    const ShelfAudit source{{"A10J05"}, RobotId{1}, RunId{60}, 1, 10, "source"};
+    ASSERT_EQ(store.save_shelf_audit(source).index(), 0U);
+    ShelfAudit recheck{
+        source.location, RobotId{2}, RunId{61}, 1, 12, std::string(112U * 1024U, 'x'),
+        source.key()};
+    EXPECT_EQ(std::get<Error>(store.save_shelf_audit(recheck)), Error::storage_full);
+    auto reopened = std::get<Store>(Store::open(db.file(), quota));
+    const auto previous =
+        std::get<std::vector<ShelfAudit>>(reopened.shelf_history(source.location));
+    ASSERT_EQ(previous.size(), 1U);
+    EXPECT_EQ(previous.front().report, source.report);
+    recheck.report = "retry evidence";
+    ASSERT_EQ(reopened.save_shelf_audit(recheck).index(), 0U);
+    ASSERT_EQ(reopened.save_shelf_audit(recheck).index(), 0U);
+    const auto reports = std::get<std::vector<ShelfAudit>>(reopened.shelf_history(source.location));
+    ASSERT_EQ(reports.size(), 2U);
+    EXPECT_EQ(reports.front().recheck_of, source.key());
+    EXPECT_EQ(reports.front().report, recheck.report);
+}
+
+TEST(MissionStore, LockedWriterLeavesReviewUnchangedAndAllowsRetry) {
+    Database db;
+    auto store = std::get<Store>(Store::open(db.file()));
+    const ShelfAudit source{{"A10J05"}, RobotId{1}, RunId{60}, 1, 10, "source"};
+    ASSERT_EQ(store.save_shelf_audit(source).index(), 0U);
+    sqlite3 *raw{};
+    const auto path = db.file().u8string();
+    ASSERT_EQ(sqlite3_open(reinterpret_cast<const char *>(path.c_str()), &raw), SQLITE_OK);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> other{raw, &sqlite3_close};
+    ASSERT_EQ(sqlite3_exec(other.get(), "BEGIN IMMEDIATE", nullptr, nullptr, nullptr), SQLITE_OK);
+    EXPECT_EQ(std::get<Error>(store.review_shelf_audit(source.location, source.key(), 15)),
+              Error::busy);
+    ASSERT_EQ(sqlite3_exec(other.get(), "ROLLBACK", nullptr, nullptr, nullptr), SQLITE_OK);
+    const auto previous = std::get<std::vector<ShelfAudit>>(store.shelf_history(source.location));
+    ASSERT_EQ(previous.size(), 1U);
+    EXPECT_FALSE(previous.front().reviewed_ms);
+    EXPECT_EQ(std::get<std::uint64_t>(store.review_shelf_audit(source.location, source.key(), 16)),
+              16U);
+}
+
 TEST(MissionStore, ReservePreemptsWorkBeforeTheBatterySignal) {
     Database db;
     auto store = std::get<Store>(Store::open(db.file()));

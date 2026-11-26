@@ -199,9 +199,9 @@ std::string_view label(Cause cause) noexcept {
     return name(cause, names);
 }
 std::string_view label(Error error) noexcept {
-    constexpr std::array<std::string_view, 8> names{"invalid",   "conflict", "full",
-                                                    "not_found", "stale",    "illegal_transition",
-                                                    "busy",      "storage"};
+    constexpr std::array<std::string_view, 10> names{
+        "invalid", "conflict", "full",         "not_found", "stale", "illegal_transition",
+        "busy",    "storage",  "storage_full", "read_only"};
     return name(error, names);
 }
 

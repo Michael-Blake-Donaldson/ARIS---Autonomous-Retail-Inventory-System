@@ -102,8 +102,18 @@ constexpr auto review_schema = R"sql(
 )sql";
 
 [[noreturn]] void fail(int code) {
-    throw(code & 0xff) == SQLITE_BUSY || (code & 0xff) == SQLITE_LOCKED ? Error::busy
-                                                                        : Error::storage;
+    switch (code & 0xff) {
+    case SQLITE_BUSY:
+    case SQLITE_LOCKED:
+        throw Error::busy;
+    case SQLITE_FULL:
+        throw Error::storage_full;
+    case SQLITE_READONLY:
+    case SQLITE_PERM:
+        throw Error::read_only;
+    default:
+        throw Error::storage;
+    }
 }
 
 void require(int code) {
@@ -367,8 +377,13 @@ void Store::Close::operator()(sqlite3 *db) const noexcept { sqlite3_close_v2(db)
 Store::Store(std::unique_ptr<sqlite3, Close> database) noexcept : database_{std::move(database)} {}
 
 Result<Store, Error> Store::open(const std::filesystem::path &file) {
+    return open(file, storage::max_database_bytes);
+}
+
+Result<Store, Error> Store::open(const std::filesystem::path &file, std::uint32_t byte_limit) {
     return checked<Store>([&] {
-        if (file.empty() || file.native().size() > 4096) {
+        if (file.empty() || file.native().size() > 4096 || byte_limit == 0 ||
+            byte_limit > storage::max_database_bytes) {
             throw Error::invalid;
         }
         const auto path = file.u8string();
@@ -396,7 +411,7 @@ Result<Store, Error> Store::open(const std::filesystem::path &file) {
         const bool fresh = version == 0 && owner == 0 &&
                            scalar(db.get(), "SELECT count(*) FROM sqlite_schema") == 0;
         if ((!fresh && ((version < 1 || version > 5) || owner != identity)) ||
-            !storage::configure_database(db.get(), scalar, storage::max_database_bytes)) {
+            !storage::configure_database(db.get(), scalar, byte_limit)) {
             throw Error::storage;
         }
         if (fresh) {

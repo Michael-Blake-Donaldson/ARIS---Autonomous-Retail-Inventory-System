@@ -64,6 +64,8 @@ struct ShelfAudit {
 class Store {
   public:
     [[nodiscard]] static Result<Store, Error> open(const std::filesystem::path &path);
+    [[nodiscard]] static Result<Store, Error> open(const std::filesystem::path &path,
+                                                   std::uint32_t byte_limit);
     [[nodiscard]] Result<Record, Error> submit(const Intent &intent);
     [[nodiscard]] Result<Record, Error> get(MissionId id);
     [[nodiscard]] Result<std::vector<Event>, Error> events(MissionId id);

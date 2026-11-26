@@ -57,7 +57,18 @@ enum class Cause {
     inspected,
     work_unavailable
 };
-enum class Error { invalid, conflict, full, not_found, stale, illegal_transition, busy, storage };
+enum class Error {
+    invalid,
+    conflict,
+    full,
+    not_found,
+    stale,
+    illegal_transition,
+    busy,
+    storage,
+    storage_full,
+    read_only
+};
 enum class Motion { brake, work, return_to_dock };
 
 struct Intent {
