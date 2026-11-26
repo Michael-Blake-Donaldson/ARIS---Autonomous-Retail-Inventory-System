@@ -75,14 +75,18 @@ TEST(MapGrid, TracesKnownShapeSaturatesAndClipsWithoutWritingOutside) {
 
 TEST(Mapper, MatchesWheelClockAndRejectsMalformedOrDuplicateScansAtomically) {
     auto mapper = std::get<Mapper>(Mapper::create(setting));
+    const auto initial_revision = mapper.revision();
     EXPECT_EQ(mapper.ingest(east(1, 2.0)), Update::missing_pose);
     EXPECT_EQ(mapper.ingest(wheel(1, pose(0.25, 1.25))), Update::accepted);
     auto bad = east(1, 2.0);
     bad.ranges_m.push_back(std::numeric_limits<double>::infinity());
     EXPECT_EQ(mapper.ingest(bad), Update::invalid);
     EXPECT_EQ(mapper.grid().counts().unknown, 81U);
+    EXPECT_EQ(mapper.revision(), initial_revision);
     const auto scan = east(1, 2.0);
     EXPECT_EQ(mapper.ingest(scan), Update::accepted);
+    const auto integrated_revision = mapper.revision();
+    EXPECT_NE(integrated_revision, initial_revision);
     EXPECT_EQ(mapper.grid().occupancy({4, 2}), Occupancy::occupied);
     EXPECT_EQ(mapper.grid().occupancy({4, 0}), Occupancy::unknown);
     EXPECT_EQ(mapper.ingest(scan), Update::invalid);
@@ -94,17 +98,21 @@ TEST(Mapper, MatchesWheelClockAndRejectsMalformedOrDuplicateScansAtomically) {
     const auto before = mapper.grid().counts().free;
     EXPECT_EQ(mapper.ingest(missing), Update::accepted);
     EXPECT_EQ(mapper.grid().counts().free, before);
+    EXPECT_EQ(mapper.revision(), integrated_revision);
 }
 
 TEST(Mapper, SuspendsOnUncertaintyAndFollowsExplicitAnchorInNewFrame) {
     auto mapper = std::get<Mapper>(Mapper::create(setting, Limits{0.5, 1.0}));
     ASSERT_EQ(mapper.ingest(wheel(1, pose(0.25, 0.25), 0.1)), Update::accepted);
     ASSERT_EQ(mapper.ingest(east(1, 1.0)), Update::accepted);
+    const auto initial_revision = mapper.revision();
     EXPECT_EQ(mapper.ingest(wheel(2, pose(0.50, 0.25), 0.7)), Update::suspended);
     EXPECT_EQ(mapper.ingest(east(2, 1.0)), Update::suspended);
+    EXPECT_EQ(mapper.revision(), initial_revision);
     EXPECT_EQ(mapper.grid().counts().occupied, 1U);
     EXPECT_FALSE(mapper.reanchor(pose(99.0, 2.0), 0.05, 0.05));
     ASSERT_TRUE(mapper.reanchor(pose(2.0, 2.0, std::numbers::pi / 2.0), 0.05, 0.05));
+    EXPECT_NE(mapper.revision(), initial_revision);
     EXPECT_EQ(mapper.grid().counts().unknown, 81U);
     EXPECT_EQ(mapper.ingest(wheel(3, pose(0.75, 0.25), 0.8)), Update::accepted);
     ASSERT_TRUE(mapper.estimate());
@@ -113,7 +121,9 @@ TEST(Mapper, SuspendsOnUncertaintyAndFollowsExplicitAnchorInNewFrame) {
     EXPECT_NEAR(mapper.estimate()->distance_error_m, 0.15, 1e-9);
     EXPECT_EQ(mapper.ingest(east(3, 1.0)), Update::accepted);
     EXPECT_EQ(mapper.grid().occupancy({4, 6}), Occupancy::occupied);
+    const auto before_reset = mapper.revision();
     mapper.reset();
+    EXPECT_NE(mapper.revision(), before_reset);
     EXPECT_FALSE(mapper.estimate());
     EXPECT_EQ(mapper.grid().counts().unknown, 81U);
 }

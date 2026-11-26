@@ -28,6 +28,8 @@ class Mapper {
 
     Update ingest(const sensors::Observation &observation) noexcept;
     [[nodiscard]] const Grid &grid() const noexcept { return grid_; }
+    // Changes when a scan with returns is integrated or evidence is cleared.
+    [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
     [[nodiscard]] const std::optional<Estimate> &estimate() const noexcept { return estimate_; }
 
     // The caller supplies an independently established pose. Old map evidence is invalidated.
@@ -54,6 +56,7 @@ class Mapper {
     std::optional<Estimate> estimate_;
     std::optional<Anchor> anchor_;
     std::uint64_t last_scan_{};
+    std::uint64_t revision_{};
 };
 
 } // namespace argus::mapping

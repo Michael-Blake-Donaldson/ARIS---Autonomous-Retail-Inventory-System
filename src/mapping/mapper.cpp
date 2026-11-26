@@ -126,6 +126,9 @@ Update Mapper::ingest_lidar(const sensors::LidarScan &scan) noexcept {
     }
 
     const auto origin = point(estimate_->pose);
+    if (returns != 0) {
+        ++revision_;
+    }
     auto angle = estimate_->pose.heading.value() + scan.first_angle_rad;
     for (const auto &range : scan.ranges_m) {
         if (range) {
@@ -156,11 +159,13 @@ bool Mapper::reanchor(robot::Pose pose, double distance_error_m,
         Estimate{pose, distance_error_m, heading_error_rad, wheel_->header.sample_tick, true};
     last_scan_ = wheel_->header.sample_tick;
     grid_.clear();
+    ++revision_;
     return true;
 }
 
 void Mapper::reset() noexcept {
     grid_.clear();
+    ++revision_;
     wheel_.reset();
     estimate_.reset();
     anchor_.reset();
