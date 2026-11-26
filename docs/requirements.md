@@ -32,3 +32,11 @@ This phase defines a scenario schema example. Warehouse geometry, scenario inges
 | Operator | Follow a job and retain control | The dashboard renders observed progress during routed work. Hold, focus loss and emergency stop interrupt worker commands at a simulation step boundary. |
 | Reviewer | Save and inspect the run after reopening | Save a verified occupancy snapshot and audit report with their run and session identifiers. Reopen the evidence in a fresh desktop process without advancing the saved run. |
 | Engineer | Preserve existing data and isolation | Migrate existing mission journals, bind storage values, bound report and map inputs, and keep simulator truth inaccessible to the worker's progress snapshots. |
+
+## Phase 15 performance profiling
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Engineer | Measure simulation and rendering independently | Record headless step latency at representative catalog sizes and native frame and scene latency. Report p95 and p99, allocation measurements and cache-miss evidence with the counter source and limits. |
+| Operator | Render a map across repeated frames | Reuse occupancy geometry across frames that share an observed map revision. Refresh it for new observations, resets, run changes and archived evidence. |
+| Reviewer | Verify that the optimization preserves results | Compare seeded headless outputs and cached versus uncached geometry. Exercise the continuous desktop workflow, saved-run review and graphics recovery. |

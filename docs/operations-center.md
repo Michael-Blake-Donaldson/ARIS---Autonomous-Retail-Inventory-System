@@ -45,7 +45,7 @@ Use **Simulate LiDAR dropout** in Live Map to withhold new scans. During autonom
 
 ## Local verification and recording
 
-`argus-desktop --ui-smoke` drives the native workflows, verifies a LiDAR dropout and recovery, loads a 12,000-row benchmark, resizes the window, and recreates OpenGL. It reports how many catalog rows were rendered and the 95th-percentile active frame time. Enable `ARGUS_ENABLE_NATIVE_UI_TESTS` at configure time to register it with CTest on an interactive Windows session. `--ui-tour` replays the same workflow at viewing speed.
+`argus-desktop --ui-smoke` drives the native workflows, verifies a LiDAR dropout and recovery, loads a 12,000-row benchmark, resizes the window, and recreates OpenGL. It reports visible catalog rows, p95 and p99 active frame and scene times, and the counts of occupancy frames, geometry builds and generated vertices. Scene time measures the CPU-side duration of scene drawing and graphics calls before the swap. Enable `ARGUS_ENABLE_NATIVE_UI_TESTS` at configure time to register it with CTest on an interactive Windows session. `--ui-tour` replays the same workflow at viewing speed.
 
 On an interactive test host, pass an existing disposable directory to `--ui-smoke DIRECTORY` and then run `--ui-reopen DIRECTORY` in a second process to verify a durable archive.
 
