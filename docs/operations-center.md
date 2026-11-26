@@ -30,10 +30,11 @@ Other warehouses support live driving and mapping. The bundled RFID stockroom su
 
 ## Run a two-robot shelf audit
 
-1. In **Fleet**, select a robot or its shelf label on the map. Select Robot 1 and choose **Start shelf audit** for `A10J05`, then start Robot 2 for `A20J05`. Both audits can continue while you change views.
-2. Use **+** or the mouse wheel to zoom from aisle labels to full shelf IDs. Right-drag to pan and use **Fit map** to reset. If a robot holds, Fleet lists the reason beside it. Choose **Inspect robot** to keep that robot selected in **Robot Maintenance**, where the original LiDAR rays and motion trail stay visible. Expand **Sensor details** for counts and localization bounds. **Hold fleet** interrupts active audits. Losing focus also holds them.
-3. Click a completed shelf's map label, then **Open audit**. You can also search by shelf ID in **Location Audits**. A shelf becomes **Complete** once both views meet the observation threshold and the report is accepted. **Needs review** flags discrepancies or unidentified evidence independently.
-4. Compare product photos, names, DPCIs, and expected and observed quantities. The table includes expected products with zero observed tags. Use **Discrepancies only**, expand **RFID tags**, or open an earlier report under **Audit history**.
+1. In **Fleet**, select a robot and an aisle. The four aisle summaries count completed locations and flag reports that need review. Choose **Browse locations** to open the selected aisle. A whole shelf such as `A10J05` is one audit. Expand `A20J06` to choose one of its ten Wacos, such as `A20J06-W01`.
+2. Select **Start location audit**. A free robot can audit any listed location. Choose Robot 2 to start a different location while the first job runs. The same location can have only one active job.
+3. **Open audit** from Fleet or search the full ID in **Location Audits**. A whole shelf or Waco becomes **Complete** once both views meet the coverage threshold and the report is saved. Its **Needs review** status reflects discrepancies or unresolved evidence. A divided shelf shows how many of its Wacos are complete and contributes only those Wacos to the aisle totals.
+4. Compare photos, DPCIs, expected and observed quantities. Expand **RFID tags**, **Unresolved RFID reads** or **Audit history** for the underlying details. Unresolved reads are excluded from the observed count.
+5. Choose **Inspect robot** for **Robot Maintenance**. It keeps the expanded stockroom scene, original LiDAR rays and full motion trail. Expand **Sensor details** for counters and localization bounds. Fleet shows a hold and its reason beside the affected robot. Use **Hold fleet** to interrupt active jobs. Losing focus also holds them.
 
 To retain shelf audits across launches, use the same existing `--operations-data DIRECTORY` each time. Otherwise Location Audits uses temporary session history. The last 20 completed audits for each shelf are retained. [Model and storage decisions](decisions/0016-fleet-shelf-audits.md)
 
