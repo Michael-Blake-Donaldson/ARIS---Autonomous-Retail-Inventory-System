@@ -44,9 +44,16 @@ bin\argus-headless.exe --warehouse small-backroom --map-stdin < "%LOCALAPPDATA%\
 
 A matching warehouse fixture and cell size are required on map import. Each loaded version 2 snapshot verifies its internal SHA-256. A digest obtained independently can pin the export with `--map-sha256`. [Map format and pinning](../mapping.md)
 
-## Search, audit, and reopen
+## Run the two-robot stockroom
 
-For shelf-level audits, start both assigned shelves from **Fleet**, monitor sensors in **Robot Maintenance**, and review product-level results in **Location Audits**. Use the same `--operations-data` directory when you restart to reopen those reports. [Two-robot walkthrough](../operations-center.md#run-a-two-robot-shelf-audit)
+1. In **Fleet**, select Robot 1 and audit whole shelf `A10J05`. Select Robot 2 and audit `A20J06-W01`, the first Waco under shelf `A20J06`. This pairing can run concurrently. Select **Inspect robot** to watch full LiDAR rays and the motion trail.
+2. Open a completed location and compare product photos, DPCIs, expected and observed counts, and RFID evidence. In **Location Audits**, filter by **Needs review only**, then review the findings and choose **Mark reviewed**.
+3. Use **Robot for audit** to pick an available robot and choose **Re-audit location**. After completion, expand **Compare with source audit**. Relaunch with the same `--operations-data` directory to reopen the results and review timestamps.
+4. For traffic coordination, assign Robot 1 to `A20J05` and Robot 2 to `A20J07`. When the routes overlap, Robot 2 shows **Yielding** until the aisle clears. Select **Hold fleet** during motion to stop work. If the selected robot retains the aisle, choose **Return to berth**.
+
+[Detailed operator workflow](../operations-center.md#run-a-two-robot-shelf-audit)
+
+## Search, audit, and reopen a single-robot run
 
 In the default `rfid-audit` stockroom, Explore, product investigation, audit and routed missions share the same robot and map. Use **Find Product** for fictional DPCI `990-01-0001`, **Inventory Audit** to audit `SOFTLINES`, and **Missions** to scan aisles or return to dock. The audit shows expected quantities, unique observed EPCs and findings for human review.
 
@@ -84,4 +91,5 @@ Reopen `audit.json` in a text or JSON viewer, and `review.csv` in a spreadsheet 
 | `database_failure`, `storage`, or `busy` | Close other writers, verify local folder permissions and free space, and preserve damaged data before restoring a trusted backup. |
 | `incompatible_map` | Select the original fixture and resolution and confirm any independently obtained pin. |
 | Audit session already exists | Reserve a fresh positive session ID. Keep earlier evidence for comparison. |
-| Work interrupted | Reopen the original mission store and follow its recovery and relocalization flow. [Mission recovery](../missions.md) |
+| Fleet shows an aisle hold | Select the affected robot and use **Return to berth** when available. Then queue the interrupted audit again. |
+| Single-robot mission interrupted | Reopen the original mission store and follow its recovery and relocalization flow. [Mission recovery](../missions.md) |
