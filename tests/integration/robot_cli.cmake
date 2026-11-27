@@ -1,0 +1,27 @@
+foreach(pass RANGE 1 2)
+    execute_process(COMMAND "${ARGUS_EXECUTABLE}" --warehouse small-backroom --tick 8 --drive-steps 220
+        OUTPUT_VARIABLE snapshot RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 8)
+    if(NOT status STREQUAL "0" OR snapshot MATCHES "truth|applied|epc")
+        message(FATAL_ERROR "Robot replay failed or exposed truth: ${status}, ${snapshot}, ${diagnostics}")
+    endif()
+    if(pass EQUAL 1)
+        set(first "${snapshot}")
+    elseif(NOT first STREQUAL snapshot)
+        message(FATAL_ERROR "Robot replay produced different snapshots")
+    endif()
+endforeach()
+string(JSON tick GET "${snapshot}" tick)
+string(JSON x GET "${snapshot}" robot odometry xM)
+string(JSON y GET "${snapshot}" robot odometry yM)
+string(JSON energy GET "${snapshot}" robot energyUj)
+string(JSON blocked GET "${snapshot}" robot collisionBlocked)
+if(NOT tick EQUAL 228 OR x LESS 13.5 OR x GREATER 13.65 OR
+   NOT y EQUAL 1.9 OR energy GREATER_EQUAL 43200000000 OR NOT blocked)
+    message(FATAL_ERROR "Unexpected drive/collision/battery result: ${snapshot}")
+endif()
+
+execute_process(COMMAND "${ARGUS_EXECUTABLE}" --warehouse small-backroom --drive-steps 2001
+    OUTPUT_VARIABLE output RESULT_VARIABLE status ERROR_VARIABLE diagnostics TIMEOUT 5)
+if(NOT status STREQUAL "2" OR NOT output STREQUAL "" OR NOT diagnostics MATCHES "invalid_drive_steps")
+    message(FATAL_ERROR "Oversized drive probe was not rejected: ${status}, ${output}, ${diagnostics}")
+endif()

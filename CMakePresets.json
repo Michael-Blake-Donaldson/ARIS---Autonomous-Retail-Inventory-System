@@ -1,0 +1,130 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_MANIFEST_FEATURES": "desktop"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "windows-release",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "windows-package",
+      "inherits": "windows-release",
+      "cacheVariables": { "ARGUS_PACKAGE_WINDOWS": "ON" }
+    },
+    {
+      "name": "linux-ci",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "ARGUS_ENABLE_SANITIZERS": "ON",
+        "ARGUS_ENABLE_CLANG_TIDY": "ON"
+      }
+    },
+    {
+      "name": "linux-fuzz",
+      "inherits": "linux-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ARGUS_ENABLE_FUZZING": "ON",
+        "ARGUS_ENABLE_CLANG_TIDY": "OFF"
+      }
+    },
+    {
+      "name": "linux-tsan",
+      "inherits": "linux-ci",
+      "cacheVariables": {
+        "ARGUS_ENABLE_SANITIZERS": "OFF",
+        "ARGUS_ENABLE_TSAN": "ON",
+        "ARGUS_ENABLE_CLANG_TIDY": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-package", "configurePreset": "windows-package" },
+    { "name": "linux-ci", "configurePreset": "linux-ci" },
+    {
+      "name": "linux-fuzz",
+      "configurePreset": "linux-fuzz",
+      "targets": ["argus-fuzz-scenario", "argus-fuzz-catalog", "argus-fuzz-map", "argus-fuzz-rfid"]
+    },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan", "targets": ["argus_unit_tests"] }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "timeout": 30 }
+    },
+    { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "inherits": "test-base", "configurePreset": "windows-release" },
+    {
+      "name": "linux-ci",
+      "inherits": "test-base",
+      "configurePreset": "linux-ci",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "windows-debug",
+      "steps": [
+        { "type": "configure", "name": "windows-debug" },
+        { "type": "build", "name": "windows-debug" },
+        { "type": "test", "name": "windows-debug" }
+      ]
+    },
+    {
+      "name": "windows-release",
+      "steps": [
+        { "type": "configure", "name": "windows-release" },
+        { "type": "build", "name": "windows-release" },
+        { "type": "test", "name": "windows-release" }
+      ]
+    },
+    {
+      "name": "linux-ci",
+      "steps": [
+        { "type": "configure", "name": "linux-ci" },
+        { "type": "build", "name": "linux-ci" },
+        { "type": "test", "name": "linux-ci" }
+      ]
+    }
+  ]
+}

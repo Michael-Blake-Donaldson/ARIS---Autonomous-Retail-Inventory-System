@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "scenarioId": 203,
+  "seed": 99001,
+  "sizeMm": [32000,24000],
+  "robot": {"spawnMm":[16000,2600],"radiusMm":450},
+  "fixtures": [
+    {"id":"south-wall-west","kind":"wall","boundsMm":[0,5000,14500,240]},
+    {"id":"south-wall-east","kind":"wall","boundsMm":[17500,5000,14500,240]},
+    {"id":"south-west","kind":"rack","boundsMm":[4500,7500,1800,4400],"aisle":"west-run","shelfHeightsMm":[420,1050,1750]},
+    {"id":"south-east","kind":"rack","boundsMm":[24500,7500,1800,4400],"aisle":"east-run","shelfHeightsMm":[420,1050,1750]},
+    {"id":"north-west","kind":"rack","boundsMm":[4500,16800,1800,5100],"aisle":"cross-aisle","shelfHeightsMm":[420,1050,1750]},
+    {"id":"north-east","kind":"rack","boundsMm":[24500,16800,1800,5100],"aisle":"cross-aisle","shelfHeightsMm":[550,1500,2400]}
+  ],
+  "zones": [
+    {"id":"west-run","kind":"aisle","boundsMm":[6300,5500,8200,7000]},
+    {"id":"east-run","kind":"aisle","boundsMm":[17500,5500,7000,7000]},
+    {"id":"cross-aisle","kind":"aisle","boundsMm":[1500,12500,29000,3300]},
+    {"id":"south-door","kind":"doorway","boundsMm":[14500,5000,3000,240]},
+    {"id":"offload-staging","kind":"receiving","boundsMm":[2500,750,7800,3500]},
+    {"id":"east-dock","kind":"dock","boundsMm":[25500,800,4600,3400]},
+    {"id":"charging-pad","kind":"charging","boundsMm":[26700,1600,1400,1700]}
+  ],
+  "actors": [
+    {"id":"cross-aisle-cart","kind":"cart","startMm":[9000,14000],"endMm":[22500,14000],"sizeMm":[700,850],"legTicks":210},
+    {"id":"south-worker","kind":"worker","startMm":[12000,8100],"endMm":[16000,8100],"sizeMm":[450,450],"legTicks":100},
+    {"id":"north-u-boat","kind":"u-boat","startMm":[27000,17400],"endMm":[27000,21800],"sizeMm":[550,1100],"legTicks":150}
+  ],
+  "items": [
+    {"epc":"A00000000000000000000014","rack":"south-west","shelf":1,"offsetMm":[200,800]},
+    {"epc":"A00000000000000000000015","rack":"south-east","shelf":3,"offsetMm":[200,1800]},
+    {"epc":"A00000000000000000000016","rack":"north-west","shelf":2,"offsetMm":[500,3500]},
+    {"epc":"A00000000000000000000017","rack":"north-east","shelf":3,"offsetMm":[800,1100]}
+  ]
+}

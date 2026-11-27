@@ -1,0 +1,5 @@
+#pragma once
+#include <string_view>
+namespace argus::desktop {
+inline constexpr std::string_view catalog_fixture = R"argus(@ARGUS_OPERATIONS_CATALOG@)argus";
+} // namespace argus::desktop

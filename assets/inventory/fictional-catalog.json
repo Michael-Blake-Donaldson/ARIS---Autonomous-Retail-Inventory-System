@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "records": [
+    {"kind":"product","id":"990-01-0001","value":"North Loop, cotton tee","detail":"clothing"},
+    {"kind":"product","id":"990-02-0001","value":"Juniper canvas shoe","detail":"shoes"},
+    {"kind":"product","id":"990-03-0001","value":"Orbit pocket radio","detail":"electronics"},
+    {"kind":"product","id":"990-04-0001","value":"Linden mug","detail":"home-goods"},
+    {"kind":"bin","id":"SOFT-A1","value":"SOFTLINES","detail":""},
+    {"kind":"bin","id":"SOFT-B1","value":"SOFTLINES","detail":""},
+    {"kind":"bin","id":"TECH-A1","value":"TECH","detail":""},
+    {"kind":"bin","id":"HOME-A1","value":"HOME","detail":""},
+    {"kind":"unit","id":"A00000000000000000000001","value":"990-01-0001","detail":"SOFT-A1"},
+    {"kind":"unit","id":"A00000000000000000000002","value":"990-01-0001","detail":"SOFT-A1"},
+    {"kind":"unit","id":"A00000000000000000000003","value":"990-02-0001","detail":"SOFT-B1"},
+    {"kind":"unit","id":"A0000000000000000000000A","value":"990-03-0001","detail":"TECH-A1"},
+    {"kind":"unit","id":"A0000000000000000000000B","value":"990-04-0001","detail":"HOME-A1"},
+    {"kind":"stock","id":"990-01-0001","value":"SOFT-A1","detail":"4"},
+    {"kind":"stock","id":"990-02-0001","value":"SOFT-B1","detail":"2"},
+    {"kind":"stock","id":"990-03-0001","value":"TECH-A1","detail":"6"},
+    {"kind":"stock","id":"990-04-0001","value":"HOME-A1","detail":"3"}
+  ]
+}

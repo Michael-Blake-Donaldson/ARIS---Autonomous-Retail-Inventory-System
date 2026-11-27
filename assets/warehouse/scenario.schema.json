@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ARGUS warehouse scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "seed",
+    "sizeMm",
+    "robot",
+    "fixtures",
+    "zones",
+    "actors",
+    "items"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "scenarioId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "sizeMm": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/extent"
+        },
+        {
+          "$ref": "#/$defs/extent"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "robot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spawnMm",
+        "radiusMm"
+      ],
+      "properties": {
+        "spawnMm": {
+          "$ref": "#/$defs/point"
+        },
+        "radiusMm": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 128,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "boundsMm",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/slug"
+              },
+              "boundsMm": {
+                "$ref": "#/$defs/rect"
+              },
+              "kind": {
+                "enum": [
+                  "wall",
+                  "obstruction"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "boundsMm",
+              "kind",
+              "aisle",
+              "shelfHeightsMm"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/slug"
+              },
+              "boundsMm": {
+                "$ref": "#/$defs/rect"
+              },
+              "kind": {
+                "const": "rack"
+              },
+              "aisle": {
+                "$ref": "#/$defs/slug"
+              },
+              "shelfHeightsMm": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20000
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "zones": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "boundsMm",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/slug"
+          },
+          "boundsMm": {
+            "$ref": "#/$defs/rect"
+          },
+          "kind": {
+            "enum": [
+              "aisle",
+              "doorway",
+              "receiving",
+              "dock",
+              "charging"
+            ]
+          }
+        }
+      }
+    },
+    "actors": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "startMm",
+          "endMm",
+          "sizeMm",
+          "legTicks"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/slug"
+          },
+          "kind": {
+            "enum": [
+              "worker",
+              "cart",
+              "u-boat",
+              "temporary-obstruction"
+            ]
+          },
+          "startMm": {
+            "$ref": "#/$defs/point"
+          },
+          "endMm": {
+            "$ref": "#/$defs/point"
+          },
+          "sizeMm": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/extent"
+              },
+              {
+                "$ref": "#/$defs/extent"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "legTicks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          },
+          "activeTicks": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "integer", "minimum": 0, "maximum": 999999 },
+              { "type": "integer", "minimum": 1, "maximum": 1000000 }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "if": { "properties": { "kind": { "const": "temporary-obstruction" } } },
+        "then": { "required": ["activeTicks"] },
+        "else": { "not": { "required": ["activeTicks"] } }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "epc",
+          "rack",
+          "shelf",
+          "offsetMm"
+        ],
+        "properties": {
+          "epc": {
+            "type": "string",
+            "pattern": "^[0-9A-F]{24}$",
+            "minLength": 24,
+            "maxLength": 24
+          },
+          "rack": {
+            "$ref": "#/$defs/slug"
+          },
+          "shelf": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "offsetMm": {
+            "$ref": "#/$defs/point"
+          },
+          "headingDeg": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 359
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 32
+    },
+    "coordinate": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "extent": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/coordinate"
+        },
+        {
+          "$ref": "#/$defs/coordinate"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "rect": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/coordinate"
+        },
+        {
+          "$ref": "#/$defs/coordinate"
+        },
+        {
+          "$ref": "#/$defs/extent"
+        },
+        {
+          "$ref": "#/$defs/extent"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    }
+  }
+}

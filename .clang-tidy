@@ -1,0 +1,11 @@
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-dangling-handle,
+  bugprone-use-after-move,
+  bugprone-suspicious-memory-comparison,
+  performance-inefficient-vector-operation,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param
+WarningsAsErrors: '*'
+HeaderFilterRegex: '[/\\\\](include[/\\\\]argus|src)[/\\\\]'
