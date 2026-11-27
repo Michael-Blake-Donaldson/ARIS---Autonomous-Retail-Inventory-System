@@ -48,6 +48,8 @@ To retain shelf audits across launches, use the same existing `--operations-data
 2. Open a report and check the product counts, unidentified tags and unresolved reads. Choose **Mark reviewed** when you have finished checking the findings. The review timestamp records that someone looked at the report. The quantities and tags remain available in the report.
 3. Select an available robot under **Robot for audit** and choose **Re-audit location**. When it completes, expand **Compare with source audit** to see observed and expected counts side by side by DPCI. A new report with discrepancies appears in the review list again. Open **Audit history** to see the source report and its original review timestamp.
 
+For long product lists, use **Previous** and **Next** above the table. Switching to **Robot Maintenance** and back to **Location Audits** retains the selected location and robot.
+
 The same operations data directory preserves completed reports, review timestamps and re-audit links. A re-audit interrupted before completion can be queued again. If the retention limit removes the source report, the re-audit still identifies its source by robot, run and session. [Review and retention decisions](decisions/0020-location-review-and-reaudits.md)
 
 ## Save and reopen a run
