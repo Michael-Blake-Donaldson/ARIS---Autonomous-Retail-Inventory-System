@@ -15,7 +15,7 @@ namespace argus::desktop {
 namespace {
 
 constexpr ImVec4 primary{0.93F, 0.95F, 0.98F, 1.0F};
-constexpr ImVec4 muted{0.61F, 0.68F, 0.77F, 1.0F};
+constexpr ImVec4 muted{0.68F, 0.74F, 0.82F, 1.0F};
 constexpr ImVec4 teal{0.46F, 0.89F, 0.83F, 1.0F};
 constexpr ImVec4 amber{1.0F, 0.72F, 0.40F, 1.0F};
 constexpr std::array<const char *, 2> aisle_names{"SOFTLINES", "TECH"};
@@ -150,6 +150,7 @@ void configure_style() {
     style.Colors[ImGuiCol_ButtonActive] = ImVec4{0.20F, 0.42F, 0.44F, 1.0F};
     style.Colors[ImGuiCol_Header] = ImVec4{0.12F, 0.29F, 0.32F, 1.0F};
     style.Colors[ImGuiCol_HeaderHovered] = ImVec4{0.17F, 0.29F, 0.37F, 1.0F};
+    style.Colors[ImGuiCol_NavCursor] = ImVec4{0.40F, 0.88F, 0.81F, 1.0F};
     style.Colors[ImGuiCol_FrameBg] = ImVec4{0.10F, 0.15F, 0.22F, 1.0F};
     style.Colors[ImGuiCol_PlotHistogram] = teal;
     style.Colors[ImGuiCol_CheckMark] = teal;
@@ -521,9 +522,10 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
 Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
     fleet.begin_frame();
     const auto size = ImGui::GetIO().DisplaySize;
-    constexpr float header = 62.0F;
-    constexpr float nav = 188.0F;
-    const auto right = std::clamp(size.x * 0.245F, 258.0F, 340.0F);
+    const auto scale = ImGui::GetStyle().FontScaleDpi;
+    const auto header = std::max(62.0F, 51.0F * scale);
+    const auto nav = std::clamp(size.x * 0.14F, 151.0F * scale, 212.0F * scale);
+    const auto right = std::clamp(size.x * 0.23F, 238.0F * scale, 330.0F * scale);
     const auto body = std::max(1.0F, size.y - header);
     const auto center = std::max(1.0F, size.x - nav - right);
     workspace_header(size.x, header);
@@ -535,6 +537,8 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
         }
         if (view == Panel::maintenance) {
             fleet.mark_maintenance_link();
+        } else if (view == Panel::locations) {
+            fleet.mark_location_link();
         }
     }
     ImGui::Separator();
@@ -588,7 +592,7 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
                    : "##dashboard-locations",
          {size.x - right, header}, {right, body},
          shown == Panel::locations ? ImGuiWindowFlags_AlwaysVerticalScrollbar : 0);
-    heading(map_view ? "Robots" : sensors ? "Maintenance" : "Locations");
+    heading(map_view ? "Fleet status" : sensors ? "Maintenance" : "Locations");
     ImGui::Separator();
     fleet.draw_sidebar(panel);
     fleet.check_horizontal_scroll();

@@ -90,7 +90,8 @@ class Recorder {
 
 class Graphics {
   public:
-    explicit Graphics(SDL_Window *window) : window_{window} {}
+    explicit Graphics(SDL_Window *window, float test_scale)
+        : window_{window}, test_scale_{test_scale} {}
     Graphics(const Graphics &) = delete;
     Graphics &operator=(const Graphics &) = delete;
     ~Graphics() { close(); }
@@ -110,6 +111,8 @@ class Graphics {
         io.LogFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         configure_style();
+        io.FontDefault = io.Fonts->AddFontDefaultVector();
+        update_scale();
         platform_ = ImGui_ImplSDL3_InitForOpenGL(window_, context_);
         renderer_ = platform_ && ImGui_ImplOpenGL2_Init();
         if (renderer_) {
@@ -123,7 +126,12 @@ class Graphics {
         return open();
     }
 
-    void event(const SDL_Event &event) const { ImGui_ImplSDL3_ProcessEvent(&event); }
+    void event(const SDL_Event &event) const {
+        ImGui_ImplSDL3_ProcessEvent(&event);
+        if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+            update_scale();
+        }
+    }
     [[nodiscard]] bool photos_ready() const noexcept { return photos_.ready(); }
 
     bool draw(Scene &scene, const LiveEngine *engine, Panels &ui, bool focused, bool demo_scene,
@@ -193,6 +201,13 @@ class Graphics {
     }
 
   private:
+    void update_scale() const {
+        const auto density = std::max(1.0F, SDL_GetWindowPixelDensity(window_));
+        const auto scale =
+            test_scale_ > 0 ? test_scale_ : SDL_GetWindowDisplayScale(window_) / density;
+        ImGui::GetStyle().FontScaleDpi = std::clamp(scale, 1.0F, 1.5F);
+    }
+
     void close() {
         if (context_) {
             SDL_GL_MakeCurrent(window_, context_);
@@ -215,6 +230,7 @@ class Graphics {
     }
 
     SDL_Window *window_;
+    float test_scale_;
     SDL_GLContext context_{};
     ImGuiContext *imgui_{};
     bool platform_{};
@@ -632,6 +648,8 @@ class FleetProbe {
         select_shelf,
         open_audit,
         inspect,
+        return_to_report,
+        reopen_maintenance,
         queue_hold,
         watch_motion,
         wait_for_hold,
@@ -693,8 +711,20 @@ class FleetProbe {
                  layout.products == fleet.history(waco_).front().report.products.size() &&
                  layout.products != 0)) {
                 if (click(layout.maintenance)) {
-                    review_ = Review::queue_hold;
+                    review_ = Review::return_to_report;
                 }
+            }
+            break;
+        case Review::return_to_report:
+            if (ui.panel == Panel::maintenance && click(layout.location_link)) {
+                review_ = Review::reopen_maintenance;
+            }
+            break;
+        case Review::reopen_maintenance:
+            if (ui.panel == Panel::locations && ui.fleet.selected() == 1 &&
+                ui.fleet.selected_location() == waco_ && layout.products != 0 &&
+                click(layout.maintenance)) {
+                review_ = Review::queue_hold;
             }
             break;
         case Review::queue_hold:
@@ -831,6 +861,7 @@ class FleetProbe {
                << ",\"wacoUnresolved\":" << tech.report.unresolved.size() << ','
                << (reopen_ ? "\"reopenedAfterRestart\":true,\"dashboard1280x720\":true,"
                              "\"shelfAuditClicks\":2,\"selectionPreserved\":true,"
+                             "\"auditContextRestored\":true,"
                              "\"holdVisible\":true,\"returnedToBerth\":true"
                            : "\"concurrentMotion\":true,\"maintenanceBothRobots\":true");
         if (audit_saved_after_hold_) {
@@ -1110,8 +1141,8 @@ class AuditReviewProbe {
 };
 
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
-                 bool demo_scene) {
-    Graphics graphics{window};
+                 bool demo_scene, float test_scale) {
+    Graphics graphics{window, test_scale};
     if (!graphics.open()) {
         return Error::graphics_context;
     }
@@ -1212,6 +1243,10 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
                     ui.fleet.layout().products < 20 || ui.fleet.layout().horizontal_scroll) {
                     return Error::graphics_present;
                 }
+                const auto size = ImGui::GetIO().DisplaySize;
+                std::cout << "{\"productsVisible\":" << ui.fleet.layout().products
+                          << ",\"width\":" << size.x << ",\"height\":" << size.y
+                          << ",\"fontScale\":" << ImGui::GetStyle().FontScaleDpi << "}\n";
                 return std::monostate{};
             }
         }
@@ -1361,17 +1396,26 @@ app::Status desktop(const app::Options &options, Mode mode) {
     if (recording && !app::use_binary_mode(stdout)) {
         return Error::output_failure;
     }
+    const auto *layout_check = SDL_getenv("ARGUS_CHECK_LARGE_LAYOUT");
+    const bool large_layout =
+        mode == Mode::fleet_profile_report && layout_check && std::string_view{layout_check} == "1";
     const bool compact = recording || mode == Mode::fleet_reopen || review_probe(mode) ||
                          desktop_metrics.enabled || mode == Mode::fleet_profile_report;
     const std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{
-        SDL_CreateWindow(title, compact ? Recorder::width : 1392, compact ? Recorder::height : 860,
+        SDL_CreateWindow(title,
+                         large_layout ? 1600
+                         : compact    ? Recorder::width
+                                      : 1392,
+                         large_layout ? 900
+                         : compact    ? Recorder::height
+                                      : 860,
                          recording ? flags : flags | SDL_WINDOW_HIGH_PIXEL_DENSITY),
         SDL_DestroyWindow};
     if (!window) {
         return Error::window_creation;
     }
     SDL_SetWindowMinimumSize(window.get(), 900, 610);
-    auto result = loop(window.get(), engine, mode, demo_scene);
+    auto result = loop(window.get(), engine, mode, demo_scene, large_layout ? 1.25F : 0.0F);
     if (desktop_metrics.enabled) {
         desktop_metrics.write(std::cerr);
     }

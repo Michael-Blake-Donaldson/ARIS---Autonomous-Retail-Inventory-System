@@ -10,9 +10,9 @@
 namespace argus::desktop {
 namespace {
 
-constexpr ImVec4 pending{1.0F, 0.40F, 0.43F, 1.0F};
-constexpr ImVec4 auditing{1.0F, 0.71F, 0.35F, 1.0F};
-constexpr ImVec4 complete{0.40F, 0.90F, 0.64F, 1.0F};
+constexpr ImVec4 pending{1.0F, 0.53F, 0.56F, 1.0F};
+constexpr ImVec4 auditing{1.0F, 0.76F, 0.44F, 1.0F};
+constexpr ImVec4 complete{0.48F, 0.92F, 0.71F, 1.0F};
 constexpr ImVec4 accent{0.46F, 0.89F, 0.83F, 1.0F};
 constexpr std::size_t products_per_page = 20;
 
@@ -26,7 +26,7 @@ Status status(ShelfState value) noexcept {
     case ShelfState::complete:
         return {"Complete", complete};
     case ShelfState::auditing:
-        return {"In progress", auditing};
+        return {"Auditing", auditing};
     case ShelfState::pending:
         return {"Pending", pending};
     }
@@ -158,6 +158,7 @@ void FleetPanel::check_horizontal_scroll() {
 }
 
 void FleetPanel::mark_maintenance_link() { layout_.maintenance = item_center(); }
+void FleetPanel::mark_location_link() { layout_.location_link = item_center(); }
 
 void FleetPanel::draw_sidebar(Panel &panel) {
     if (!get()) {
@@ -213,6 +214,7 @@ void FleetPanel::robots(Panel &panel) {
         }
     }
     ImGui::Separator();
+    ImGui::TextDisabled("Aisle progress");
     for (std::size_t i = 0; i < audit::stockroom_aisles.size(); ++i) {
         const auto summary = fleet.aisle_summary(i);
         std::array<char, 64> label{};
@@ -747,6 +749,21 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     } else {
         const auto pages = (count + products_per_page - 1) / products_per_page;
         product_page_ = std::min(product_page_, pages - 1);
+        if (pages > 1) {
+            ImGui::BeginDisabled(product_page_ == 0);
+            if (ImGui::Button("Previous")) {
+                --product_page_;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::Text("Page %zu of %zu", product_page_ + 1, pages);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(product_page_ + 1 == pages);
+            if (ImGui::Button("Next")) {
+                ++product_page_;
+            }
+            ImGui::EndDisabled();
+        }
         if (ImGui::BeginTable("##audit-products", 3,
                               ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp |
                                   ImGuiTableFlags_BordersInnerH)) {
@@ -779,21 +796,6 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
                 ++layout_.products;
             }
             ImGui::EndTable();
-        }
-        if (pages > 1) {
-            ImGui::BeginDisabled(product_page_ == 0);
-            if (ImGui::Button("Previous products")) {
-                --product_page_;
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::Text("%zu / %zu", product_page_ + 1, pages);
-            ImGui::SameLine();
-            ImGui::BeginDisabled(product_page_ + 1 == pages);
-            if (ImGui::Button("Next products")) {
-                ++product_page_;
-            }
-            ImGui::EndDisabled();
         }
     }
     if (!entry.report.unidentified.empty() && ImGui::TreeNode("Unidentified RFID tags")) {

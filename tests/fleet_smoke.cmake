@@ -17,6 +17,7 @@ foreach(mode IN ITEMS smoke reopen)
        (NOT output MATCHES "\"dashboard1280x720\":true" OR
         NOT output MATCHES "\"shelfAuditClicks\":2" OR
         NOT output MATCHES "\"selectionPreserved\":true" OR
+        NOT output MATCHES "\"auditContextRestored\":true" OR
         NOT output MATCHES "\"holdVisible\":true" OR
         NOT output MATCHES "\"returnedToBerth\":true" OR
         NOT output MATCHES "\"auditSavedAfterHold\":true" OR

@@ -15,6 +15,7 @@ struct DashboardLayout {
     std::optional<DashboardPoint> map_zoom;
     std::optional<DashboardPoint> open_audit;
     std::optional<DashboardPoint> maintenance;
+    std::optional<DashboardPoint> location_link;
     std::optional<DashboardPoint> return_to_berth;
     std::optional<DashboardPoint> mark_reviewed;
     std::optional<DashboardPoint> recheck;
@@ -41,6 +42,7 @@ class FleetPanel {
     void begin_frame() noexcept { layout_ = {}; }
     void check_horizontal_scroll();
     void mark_maintenance_link();
+    void mark_location_link();
     [[nodiscard]] const DashboardLayout &layout() const noexcept { return layout_; }
     [[nodiscard]] Fleet *get() noexcept { return fleet_ && fleet_->ready() ? &*fleet_ : nullptr; }
     [[nodiscard]] const Fleet *get() const noexcept {
