@@ -21,6 +21,10 @@ The first 150% run detected horizontal overflow from long provenance text and th
 
 The Windows ZIP and acceptance receipt are in `out/release/phase-29`. The archive SHA-256 is `51e07c335e7c8b2f911a00f377f42cb443143db4e9faca6ef5ee3f9bd24f0723`.
 
+## README packaging follow-up
+
+The rebuild at `7bb85b49d27daaa7e6c4d3fc7d0c26d2507b964a` used `tools/build-windows-package.ps1 -NativeUi -OutputDirectory out/release/docs-cleanup` and passed 136/136 tests. Running `tools/test-windows-package.ps1 -NativeUi` with the new archive and its digest passed all 26 extracted-package checks. An archive inspection verified 77 local Markdown links and matched each of the three README screenshots byte for byte against the repository image. PowerShell syntax and `git diff --check` passed. This follow-up changes packaging and documentation. The Windows ZIP and acceptance receipt are in `out/release/docs-cleanup`.
+
 ## Open verification
 
 The probe injects effective scales through the SDL event path. This host has one active physical monitor. Windows Sandbox was absent and the session could not access Hyper-V inventory. Physical DPI transitions and acceptance on a separate clean Windows installation remain open.
