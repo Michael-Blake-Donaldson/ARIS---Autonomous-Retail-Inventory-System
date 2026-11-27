@@ -155,3 +155,11 @@ Judge visual polish by readability, task completion and responsiveness. Record b
 | Operator | Find a saved audit with a keyboard | Open location search, type a shelf or Waco ID, and submit an exact match. Read the report, open Maintenance, and return to the same report with no pointer input. Commands that move a robot remain deliberate. |
 | Reviewer | Verify the packaged keyboard path | Run the native search and navigation probe against seeded audit history and run it again from the extracted Windows package. |
 | Performance reviewer | Measure idle Fleet independently | Measure an exclusively idle Fleet display after startup warmup. Record frame and tick percentiles, grid backing allocations and peak working set over repeated local Release runs. Record the separate-host and physical DPI gates as open when unavailable. |
+
+## Phase 28 keyboard audit actions
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Finish an audit review without a pointer | From a saved audit, focus Mark reviewed with the keyboard and explicitly activate it. Preserve the source report evidence and apply the usual eligibility checks. |
+| Operator | Re-audit the selected location without a pointer | Focus Re-audit location with the keyboard and explicitly activate it. Use the selected available robot and retain the source audit link when the new report is saved. |
+| Release reviewer | Verify deliberate activation | Exercise the native keyboard path with a saved Waco report and repeat it from the extracted Windows package. Verify the shortcuts alone submit no work, re-audit focus leaves active text entry alone, and the completed re-audit points to the reviewed report. |

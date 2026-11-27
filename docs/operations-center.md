@@ -52,6 +52,8 @@ For long product lists, use **Previous** and **Next** above the table. Switching
 
 With the fleet loaded, **Ctrl+F** opens and focuses location search. Type an exact shelf or Waco ID and press **Enter** to open that location. Search accepts lowercase and surrounding spaces. For example, enter `A20J06-W01` for the first Waco under shelf J06. Press **F6** for Fleet, **F7** for Location Audits or **F8** for Robot Maintenance. Press **Escape** to leave an active text edit before using a view shortcut.
 
+In **Location Audits**, press **F9** to focus **Mark reviewed** or **F10** to focus **Re-audit location**. Check the visible focus and the selected robot before pressing **Space** to activate the button. These shortcuts apply to available actions on the latest saved report. If the button is unavailable, check the report status and whether the selected robot is busy or holding an aisle.
+
 The same operations data directory preserves completed reports, review timestamps and re-audit links. A re-audit interrupted before completion can be queued again. If the retention limit removes the source report, the re-audit still identifies its source by robot, run and session. [Review and retention decisions](decisions/0020-location-review-and-reaudits.md)
 
 ## Save and reopen a run
