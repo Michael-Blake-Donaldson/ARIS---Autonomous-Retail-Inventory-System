@@ -10,6 +10,8 @@ struct DashboardPoint {
     float y;
 };
 
+enum class AuditAction { review, recheck };
+
 struct DashboardLayout {
     std::optional<DashboardPoint> second_shelf;
     std::optional<DashboardPoint> map_zoom;
@@ -29,6 +31,8 @@ struct DashboardLayout {
     bool hold_visible{};
     bool history_issue_visible{};
     bool location_no_match{};
+    bool review_focused{};
+    bool recheck_focused{};
     std::size_t products{};
     bool compared{};
     std::size_t filtered_reviews{};
@@ -39,7 +43,8 @@ class FleetPanel {
     void open(const std::optional<std::filesystem::path> &directory);
     void draw_sidebar(Panel &panel);
     void draw_map();
-    void draw_audit(const FleetPhotos &photos);
+    void draw_audit(const FleetPhotos &photos, bool focused,
+                    std::optional<AuditAction> requested_focus);
     void begin_frame() noexcept { layout_ = {}; }
     void check_horizontal_scroll();
     void mark_maintenance_link();

@@ -241,7 +241,8 @@ try {
             $reviewReopen.comparisonVisible) 'Portable replacement could not reopen the reviewed report and re-audit.'
         $keyboard = Invoke-Portable 'argus-desktop' @('--ui-fleet-keyboard', $fleetData) | ConvertFrom-Json
         Assert-Package ($keyboard.keyboardOnly -and $keyboard.mistypeRecovered -and
-            $keyboard.reportSelectionPreserved) 'Portable keyboard audit workflow failed.'
+            $keyboard.reportSelectionPreserved -and $keyboard.reviewed -and
+            $keyboard.recheckLinked) 'Portable keyboard audit workflow failed.'
         [void][IO.Directory]::CreateDirectory($faultData)
         $damaged = Join-Path $faultData 'missions.db'
         [IO.File]::WriteAllText($damaged, 'deliberately damaged mission database')

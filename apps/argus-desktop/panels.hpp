@@ -39,6 +39,7 @@ class Panels {
 
     Panel panel{Panel::overview};
     FleetPanel fleet;
+    std::optional<AuditAction> audit_action_focus;
     Camera camera;
     Overlays overlays;
     LiveAction action{LiveAction::none};
@@ -66,7 +67,7 @@ class Panels {
     [[nodiscard]] bool save();
 
   private:
-    [[nodiscard]] Canvas draw_dashboard(const FleetPhotos &photos);
+    [[nodiscard]] Canvas draw_dashboard(const FleetPhotos &photos, bool focused);
     void close_review() noexcept;
     void panel_contents(const LiveFrame &frame, bool focused);
     void overview(const LiveFrame &frame, bool focused);

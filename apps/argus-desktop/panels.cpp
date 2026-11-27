@@ -407,7 +407,7 @@ void Panels::hold_fleet() {
 
 Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
     if (fleet_panel(panel)) {
-        return draw_dashboard(photos);
+        return draw_dashboard(photos, focused);
     }
     const auto size = ImGui::GetIO().DisplaySize;
     const auto left = std::clamp(size.x * 0.148F, 160.0F, 210.0F);
@@ -519,7 +519,8 @@ Canvas Panels::draw(bool focused, const FleetPhotos &photos) {
             std::max(1.0F, canvas.height - toolbar_height)};
 }
 
-Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
+Canvas Panels::draw_dashboard(const FleetPhotos &photos, bool focused) {
+    const auto requested_focus = std::exchange(audit_action_focus, std::nullopt);
     fleet.begin_frame();
     const auto size = ImGui::GetIO().DisplaySize;
     const auto scale = ImGui::GetStyle().FontScaleDpi;
@@ -582,7 +583,7 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos) {
         scene_camera(camera, false);
         viewport = {nav, header + 76.0F, center, std::max(1.0F, body - 76.0F)};
     } else {
-        fleet.draw_audit(photos);
+        fleet.draw_audit(photos, focused, requested_focus);
     }
     fleet.check_horizontal_scroll();
     ImGui::End();

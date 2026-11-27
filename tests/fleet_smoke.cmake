@@ -45,10 +45,11 @@ foreach(mode IN ITEMS review review-reopen)
     message(STATUS "${output}")
 endforeach()
 execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-keyboard "${data}"
-    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 15)
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE diagnostics TIMEOUT 35)
 if(NOT result STREQUAL "0" OR NOT output MATCHES "\"keyboardOnly\":true" OR
     NOT output MATCHES "\"mistypeRecovered\":true" OR
-    NOT output MATCHES "\"reportSelectionPreserved\":true")
+    NOT output MATCHES "\"reportSelectionPreserved\":true" OR
+    NOT output MATCHES "\"reviewed\":true" OR NOT output MATCHES "\"recheckLinked\":true")
     message(FATAL_ERROR "Keyboard audit failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
 endif()
 message(STATUS "${output}")

@@ -602,7 +602,8 @@ void FleetPanel::maintenance() {
     }
 }
 
-void FleetPanel::draw_audit(const FleetPhotos &photos) {
+void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
+                            std::optional<AuditAction> requested_focus) {
     auto *fleet = get();
     if (!fleet) {
         return;
@@ -625,7 +626,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     const auto history = fleet->history(location_);
     if (history.empty()) {
         ImGui::TextDisabled("No completed audit");
-        ImGui::BeginDisabled(fleet->history_error() || !fleet->motion_available() ||
+        ImGui::BeginDisabled(!focused || fleet->history_error() || !fleet->motion_available() ||
                              fleet->busy(selected_) ||
                              fleet->state(location_) == ShelfState::auditing);
         if (ImGui::Button("Start location audit")) {
@@ -674,12 +675,18 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
     }
     if (selected == history.begin()) {
         const bool active = fleet->state(location_) == ShelfState::auditing;
-        const bool can_recheck = !fleet->history_error() && fleet->motion_available() && !active &&
-                                 !fleet->busy(selected_) && !fleet->aisle_retained(selected_);
+        const bool can_recheck = focused && !fleet->history_error() && fleet->motion_available() &&
+                                 !active && !fleet->busy(selected_) &&
+                                 !fleet->aisle_retained(selected_);
         ImGui::BeginDisabled(!can_recheck);
+        if (can_recheck && requested_focus == AuditAction::recheck) {
+            ImGui::SetKeyboardFocusHere();
+        }
         const bool recheck = ImGui::Button("Re-audit location");
+        ImGui::SetItemTooltip("F10 to focus, then Space to activate");
         if (can_recheck) {
             layout_.recheck = item_center();
+            layout_.recheck_focused = ImGui::IsItemFocused();
         }
         if (recheck) {
             static_cast<void>(fleet->queue(selected_, location_));
@@ -689,11 +696,17 @@ void FleetPanel::draw_audit(const FleetPhotos &photos) {
         ImGui::TextDisabled("Robot %zu", selected_ + 1);
         if (entry.needs_review()) {
             ImGui::SameLine();
-            const bool can_review = !fleet->history_error() && !active && !fleet->review_pending();
+            const bool can_review =
+                focused && !fleet->history_error() && !active && !fleet->review_pending();
             ImGui::BeginDisabled(!can_review);
+            if (can_review && requested_focus == AuditAction::review) {
+                ImGui::SetKeyboardFocusHere();
+            }
             const bool review = ImGui::Button("Mark reviewed");
+            ImGui::SetItemTooltip("F9 to focus, then Space to activate");
             if (can_review) {
                 layout_.mark_reviewed = item_center();
+                layout_.review_focused = ImGui::IsItemFocused();
             }
             if (review) {
                 static_cast<void>(fleet->review(location_, entry.audit.key()));

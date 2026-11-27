@@ -251,6 +251,7 @@ class Controls {
             // Native probes ignore desktop focus changes. Their injected focus event has no
             // associated window and exercises the same fleet hold as interactive focus loss.
             if (interactive || event.window.windowID == 0) {
+                ui.audit_action_focus.reset();
                 ui.hold_fleet();
             }
             ui.request(LiveAction::pause);
@@ -363,6 +364,15 @@ class Controls {
             return true;
         case SDL_SCANCODE_F8:
             ui.panel = Panel::maintenance;
+            return true;
+        case SDL_SCANCODE_F9:
+        case SDL_SCANCODE_F10:
+            if (ui.panel != Panel::locations ||
+                (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI | SDL_KMOD_SHIFT)) != 0) {
+                return false;
+            }
+            ui.audit_action_focus =
+                key.scancode == SDL_SCANCODE_F9 ? AuditAction::review : AuditAction::recheck;
             return true;
         default:
             return false;
@@ -1177,12 +1187,13 @@ class KeyboardProbe {
   public:
     std::optional<bool> advance(Panels &ui, SDL_Window *window) {
         auto *fleet = ui.fleet.get();
-        if (!fleet || fleet->history_error() || fleet->history(target_).empty() ||
-            SDL_GetTicks() - started_ > 10000) {
+        if (!fleet || fleet->history_error() || fleet->review_error(target_) ||
+            fleet->history(target_).empty() || SDL_GetTicks() - started_ > 30000) {
             std::cerr << "Keyboard audit probe failed at stage " << static_cast<int>(stage_)
                       << '\n';
             return false;
         }
+        const auto history = fleet->history(target_);
         const auto &layout = ui.fleet.layout();
         switch (stage_) {
         case Stage::open_search:
@@ -1216,14 +1227,15 @@ class KeyboardProbe {
             break;
         case Stage::enter_location:
             if (ImGui::GetIO().WantTextInput) {
-                if (!type(window, " a20j06-w01 ")) {
+                if (!press(window, SDL_SCANCODE_F10, SDLK_F10) || !type(window, " a20j06-w01 ")) {
                     return false;
                 }
                 stage_ = Stage::submit_location;
             }
             break;
         case Stage::submit_location:
-            if (!press(window, SDL_SCANCODE_RETURN, SDLK_RETURN)) {
+            if (!ImGui::GetIO().WantTextInput || layout.recheck_focused || fleet->busy(1) ||
+                !press(window, SDL_SCANCODE_RETURN, SDLK_RETURN)) {
                 return false;
             }
             stage_ = Stage::open_maintenance;
@@ -1250,7 +1262,56 @@ class KeyboardProbe {
         case Stage::verify_report:
             if (ui.panel == Panel::locations && ui.fleet.selected_location() == target_ &&
                 ui.fleet.selected() == 1 && layout.products != 0 && !layout.horizontal_scroll) {
-                if (!press(window, SDL_SCANCODE_F6, SDLK_F6)) {
+                if (history.size() != 1 || !history.front().needs_review() ||
+                    !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
+                    return false;
+                }
+                source_ = history.front().audit.key();
+                evidence_ = history.front().audit.report;
+                stage_ = Stage::confirm_review;
+            }
+            break;
+        case Stage::confirm_review:
+            if (layout.review_focused) {
+                if (fleet->review_pending() || !history.front().needs_review() ||
+                    !press(window, SDL_SCANCODE_SPACE, SDLK_SPACE)) {
+                    return false;
+                }
+                stage_ = Stage::focus_recheck;
+            }
+            break;
+        case Stage::focus_recheck:
+            if (history.front().audit.reviewed_ms && layout.recheck) {
+                if (history.front().audit.key() != source_ ||
+                    history.front().audit.report != evidence_ ||
+                    !press(window, SDL_SCANCODE_F10, SDLK_F10)) {
+                    return false;
+                }
+                stage_ = Stage::confirm_recheck;
+            }
+            break;
+        case Stage::confirm_recheck:
+            if (layout.recheck_focused) {
+                if (fleet->busy(1) || fleet->state(target_) == ShelfState::auditing ||
+                    !press(window, SDL_SCANCODE_SPACE, SDLK_SPACE)) {
+                    return false;
+                }
+                stage_ = Stage::recheck_started;
+            }
+            break;
+        case Stage::recheck_started:
+            if (fleet->busy(1) && fleet->state(target_) == ShelfState::auditing) {
+                stage_ = Stage::verify_recheck;
+            }
+            break;
+        case Stage::verify_recheck:
+            if (history.size() == 2) {
+                if (history.front().audit.recheck_of != source_ ||
+                    history.front().audit.robot != RobotId{2} ||
+                    history.back().audit.key() != source_ || !history.back().audit.reviewed_ms ||
+                    history.back().audit.report != evidence_ ||
+                    ui.fleet.selected_location() != target_ ||
+                    !press(window, SDL_SCANCODE_F6, SDLK_F6)) {
                     return false;
                 }
                 stage_ = Stage::verify_fleet;
@@ -1259,7 +1320,8 @@ class KeyboardProbe {
         case Stage::verify_fleet:
             if (ui.panel == Panel::fleet && ui.fleet.selected_location() == target_) {
                 std::cout << "{\"keyboardOnly\":true,\"mistypeRecovered\":true,"
-                             "\"reportSelectionPreserved\":true}\n";
+                             "\"reportSelectionPreserved\":true,\"reviewed\":true,"
+                             "\"recheckLinked\":true}\n";
                 return true;
             }
             break;
@@ -1304,11 +1366,18 @@ class KeyboardProbe {
         open_maintenance,
         return_to_report,
         verify_report,
+        confirm_review,
+        focus_recheck,
+        confirm_recheck,
+        recheck_started,
+        verify_recheck,
         verify_fleet
     };
     const Uint64 started_{SDL_GetTicks()};
     const std::size_t target_{Fleet::initial_location(1)};
     Stage stage_{Stage::open_search};
+    std::optional<mission::ShelfAuditKey> source_;
+    std::string evidence_;
 };
 
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
