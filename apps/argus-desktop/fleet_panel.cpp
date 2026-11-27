@@ -661,10 +661,12 @@ void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
         }
     }
     const auto &entry = *selected;
+    ImGui::PushTextWrapPos(0.0F);
     ImGui::TextDisabled("Robot %llu  /  Session %llu  /  Run %llu",
                         static_cast<unsigned long long>(entry.audit.robot.value()),
                         static_cast<unsigned long long>(entry.audit.session),
                         static_cast<unsigned long long>(entry.audit.run.value()));
+    ImGui::PopTextWrapPos();
     time_label(entry.audit.completed_ms);
     if (entry.audit.reviewed_ms) {
         ImGui::TextColored(complete, "Reviewed");
@@ -720,10 +722,12 @@ void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
     if (entry.audit.recheck_of) {
         const auto key = *entry.audit.recheck_of;
         const auto source = std::ranges::find(history, key, identity);
+        ImGui::PushTextWrapPos(0.0F);
         ImGui::TextDisabled("Recheck of Robot %llu / Session %llu / Run %llu",
                             static_cast<unsigned long long>(key.robot.value()),
                             static_cast<unsigned long long>(key.session),
                             static_cast<unsigned long long>(key.run.value()));
+        ImGui::PopTextWrapPos();
         if (source == history.end()) {
             ImGui::TextDisabled("Source report unavailable in audit history");
         } else {

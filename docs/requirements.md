@@ -163,3 +163,10 @@ Judge visual polish by readability, task completion and responsiveness. Record b
 | Operator | Finish an audit review without a pointer | From a saved audit, focus Mark reviewed with the keyboard and explicitly activate it. Preserve the source report evidence and apply the usual eligibility checks. |
 | Operator | Re-audit the selected location without a pointer | Focus Re-audit location with the keyboard and explicitly activate it. Use the selected available robot and retain the source audit link when the new report is saved. |
 | Release reviewer | Verify deliberate activation | Exercise the native keyboard path with a saved Waco report and repeat it from the extracted Windows package. Verify the shortcuts alone submit no work, re-audit focus leaves active text entry alone, an unavailable action clears previous focus, and the completed re-audit points to the reviewed report. |
+
+## Phase 29 desktop display scale transitions
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Keep working through a display scale change | At 1280 × 720, change the effective UI scale from 100% to 150% during location entry. Preserve the text edit and open the selected Waco report without horizontal overflow. Return to 100% through Maintenance and verify the same robot, location and visible product count. |
+| Release reviewer | Verify the native response | Exercise the SDL display-scale event path from the Windows build and extracted package. Record the simulated scale inputs and keep the independent clean Windows installation and physical monitor transition gates explicit. |

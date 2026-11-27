@@ -525,7 +525,11 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos, bool focused) {
     const auto size = ImGui::GetIO().DisplaySize;
     const auto scale = ImGui::GetStyle().FontScaleDpi;
     const auto header = std::max(62.0F, 51.0F * scale);
-    const auto nav = std::clamp(size.x * 0.14F, 151.0F * scale, 212.0F * scale);
+    const auto &style = ImGui::GetStyle();
+    const auto maintenance = panel_names[static_cast<std::size_t>(Panel::maintenance)];
+    const auto label_width = ImGui::CalcTextSize(maintenance.data()).x;
+    const auto nav = std::max(std::clamp(size.x * 0.14F, 151.0F * scale, 212.0F * scale),
+                              label_width + 2.0F * style.WindowPadding.x + style.ItemSpacing.x);
     const auto right = std::clamp(size.x * 0.23F, 238.0F * scale, 330.0F * scale);
     const auto body = std::max(1.0F, size.y - header);
     const auto center = std::max(1.0F, size.x - nav - right);
