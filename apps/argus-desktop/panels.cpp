@@ -584,6 +584,11 @@ Canvas Panels::draw_dashboard(const FleetPhotos &photos, bool focused) {
         viewport = {nav, header + 76.0F, center, std::max(1.0F, body - 76.0F)};
     } else {
         fleet.draw_audit(photos, focused, requested_focus);
+        if (requested_focus && focused &&
+            !(*requested_focus == AuditAction::review ? fleet.layout().mark_reviewed
+                                                      : fleet.layout().recheck)) {
+            ImGui::SetWindowFocus(nullptr);
+        }
     }
     fleet.check_horizontal_scroll();
     ImGui::End();

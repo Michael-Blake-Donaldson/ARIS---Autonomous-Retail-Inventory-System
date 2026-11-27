@@ -629,7 +629,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
         ImGui::BeginDisabled(!focused || fleet->history_error() || !fleet->motion_available() ||
                              fleet->busy(selected_) ||
                              fleet->state(location_) == ShelfState::auditing);
-        if (ImGui::Button("Start location audit")) {
+        if (ImGui::Button("Start location audit") && !requested_focus) {
             static_cast<void>(fleet->queue(selected_, location_));
         }
         ImGui::EndDisabled();
@@ -688,7 +688,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
             layout_.recheck = item_center();
             layout_.recheck_focused = ImGui::IsItemFocused();
         }
-        if (recheck) {
+        if (recheck && !requested_focus) {
             static_cast<void>(fleet->queue(selected_, location_));
         }
         ImGui::EndDisabled();
@@ -708,7 +708,7 @@ void FleetPanel::draw_audit(const FleetPhotos &photos, bool focused,
                 layout_.mark_reviewed = item_center();
                 layout_.review_focused = ImGui::IsItemFocused();
             }
-            if (review) {
+            if (review && !requested_focus) {
                 static_cast<void>(fleet->review(location_, entry.audit.key()));
             }
             ImGui::EndDisabled();

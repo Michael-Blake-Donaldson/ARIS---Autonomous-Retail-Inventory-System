@@ -1287,8 +1287,31 @@ class KeyboardProbe {
                     !press(window, SDL_SCANCODE_F10, SDLK_F10)) {
                     return false;
                 }
-                stage_ = Stage::confirm_recheck;
+                stage_ = Stage::focus_unavailable_review;
             }
+            break;
+        case Stage::focus_unavailable_review:
+            if (layout.recheck_focused) {
+                if (layout.mark_reviewed || !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
+                    return false;
+                }
+                stage_ = Stage::verify_focus_cleared;
+            }
+            break;
+        case Stage::verify_focus_cleared:
+            if (!ImGui::GetIO().NavActive && !layout.recheck_focused) {
+                if (!press(window, SDL_SCANCODE_SPACE, SDLK_SPACE)) {
+                    return false;
+                }
+                stage_ = Stage::restore_recheck_focus;
+            }
+            break;
+        case Stage::restore_recheck_focus:
+            if (fleet->busy(1) || fleet->state(target_) == ShelfState::auditing ||
+                !press(window, SDL_SCANCODE_F10, SDLK_F10)) {
+                return false;
+            }
+            stage_ = Stage::confirm_recheck;
             break;
         case Stage::confirm_recheck:
             if (layout.recheck_focused) {
@@ -1368,6 +1391,9 @@ class KeyboardProbe {
         verify_report,
         confirm_review,
         focus_recheck,
+        focus_unavailable_review,
+        verify_focus_cleared,
+        restore_recheck_focus,
         confirm_recheck,
         recheck_started,
         verify_recheck,
