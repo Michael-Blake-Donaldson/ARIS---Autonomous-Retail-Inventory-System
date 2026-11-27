@@ -93,6 +93,7 @@ jobs:
           for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_INSTALL=%%I"
           if not defined VS_INSTALL exit /b 1
           call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 || exit /b 1
+          set "VCPKG_ROOT=%GITHUB_WORKSPACE%\.build-tools\vcpkg"
           call "%VCPKG_ROOT%\bootstrap-vcpkg.bat" -disableMetrics || exit /b 1
           cmake --workflow --preset "%ARGUS_PRESET%" || exit /b 1
 
