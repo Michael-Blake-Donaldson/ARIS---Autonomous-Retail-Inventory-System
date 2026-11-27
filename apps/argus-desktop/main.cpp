@@ -38,6 +38,8 @@ enum class Mode {
     fleet_traffic_reverse,
     fleet_data_fault,
     fleet_profile_report,
+    fleet_profile_idle,
+    fleet_keyboard,
     fleet_review,
     fleet_review_reopen,
     dashboard_record,
@@ -50,8 +52,8 @@ bool review_probe(Mode mode) noexcept {
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
            mode == Mode::fleet_traffic_reverse || mode == Mode::fleet_data_fault ||
-           mode == Mode::fleet_profile_report || mode == Mode::dashboard_record ||
-           review_probe(mode);
+           mode == Mode::fleet_profile_report || mode == Mode::fleet_profile_idle ||
+           mode == Mode::fleet_keyboard || mode == Mode::dashboard_record || review_probe(mode);
 }
 bool captures_video(Mode mode) noexcept {
     return mode == Mode::record || mode == Mode::dashboard_record || mode == Mode::review_record;
@@ -259,6 +261,10 @@ class Controls {
         }
         const auto pressed = event.type == SDL_EVENT_KEY_DOWN;
         const auto fresh = pressed && !event.key.repeat;
+        if (fresh && fleet_shortcut(event.key, ui)) {
+            disarm();
+            return;
+        }
         if (pressed && ImGui::GetIO().WantCaptureKeyboard && event.key.scancode != SDL_SCANCODE_X) {
             disarm();
             return;
@@ -336,6 +342,33 @@ class Controls {
     robot::Command command() noexcept { return drive_.command(); }
 
   private:
+    static bool fleet_shortcut(const SDL_KeyboardEvent &key, Panels &ui) {
+        if (!ui.fleet.get() || ImGui::GetIO().WantTextInput) {
+            return false;
+        }
+        switch (key.scancode) {
+        case SDL_SCANCODE_F:
+            if ((key.mod & SDL_KMOD_CTRL) == 0 ||
+                (key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI | SDL_KMOD_SHIFT)) != 0) {
+                return false;
+            }
+            ui.fleet.focus_location_search();
+            ui.panel = Panel::locations;
+            return true;
+        case SDL_SCANCODE_F6:
+            ui.panel = Panel::fleet;
+            return true;
+        case SDL_SCANCODE_F7:
+            ui.panel = Panel::locations;
+            return true;
+        case SDL_SCANCODE_F8:
+            ui.panel = Panel::maintenance;
+            return true;
+        default:
+            return false;
+        }
+    }
+
     DriveInput drive_;
 };
 
@@ -1140,6 +1173,144 @@ class AuditReviewProbe {
     std::optional<ProbePointer> input_;
 };
 
+class KeyboardProbe {
+  public:
+    std::optional<bool> advance(Panels &ui, SDL_Window *window) {
+        auto *fleet = ui.fleet.get();
+        if (!fleet || fleet->history_error() || fleet->history(target_).empty() ||
+            SDL_GetTicks() - started_ > 10000) {
+            std::cerr << "Keyboard audit probe failed at stage " << static_cast<int>(stage_)
+                      << '\n';
+            return false;
+        }
+        const auto &layout = ui.fleet.layout();
+        switch (stage_) {
+        case Stage::open_search:
+            if (!press(window, SDL_SCANCODE_F, SDLK_F, SDL_KMOD_LCTRL)) {
+                return false;
+            }
+            stage_ = Stage::enter_mistype;
+            break;
+        case Stage::enter_mistype:
+            if (ui.panel == Panel::locations && ImGui::GetIO().WantTextInput) {
+                if (!type(window, "A20J06-W00")) {
+                    return false;
+                }
+                stage_ = Stage::submit_mistype;
+            }
+            break;
+        case Stage::submit_mistype:
+            if (!press(window, SDL_SCANCODE_RETURN, SDLK_RETURN)) {
+                return false;
+            }
+            stage_ = Stage::recover_search;
+            break;
+        case Stage::recover_search:
+            if (!ImGui::GetIO().WantTextInput && layout.location_no_match &&
+                ui.fleet.selected_location() != target_) {
+                if (!press(window, SDL_SCANCODE_F, SDLK_F, SDL_KMOD_LCTRL)) {
+                    return false;
+                }
+                stage_ = Stage::enter_location;
+            }
+            break;
+        case Stage::enter_location:
+            if (ImGui::GetIO().WantTextInput) {
+                if (!type(window, " a20j06-w01 ")) {
+                    return false;
+                }
+                stage_ = Stage::submit_location;
+            }
+            break;
+        case Stage::submit_location:
+            if (!press(window, SDL_SCANCODE_RETURN, SDLK_RETURN)) {
+                return false;
+            }
+            stage_ = Stage::open_maintenance;
+            break;
+        case Stage::open_maintenance:
+            if (ui.fleet.selected_location() == target_ && layout.products != 0 &&
+                !ImGui::GetIO().WantTextInput) {
+                if (!press(window, SDL_SCANCODE_F8, SDLK_F8)) {
+                    return false;
+                }
+                stage_ = Stage::return_to_report;
+            }
+            break;
+        case Stage::return_to_report:
+            if (ui.panel == Panel::maintenance) {
+                const auto overlays = ui.display_overlays(ui.display_frame());
+                if (!overlays.lidar || !overlays.trace ||
+                    !press(window, SDL_SCANCODE_F7, SDLK_F7)) {
+                    return false;
+                }
+                stage_ = Stage::verify_report;
+            }
+            break;
+        case Stage::verify_report:
+            if (ui.panel == Panel::locations && ui.fleet.selected_location() == target_ &&
+                ui.fleet.selected() == 1 && layout.products != 0 && !layout.horizontal_scroll) {
+                if (!press(window, SDL_SCANCODE_F6, SDLK_F6)) {
+                    return false;
+                }
+                stage_ = Stage::verify_fleet;
+            }
+            break;
+        case Stage::verify_fleet:
+            if (ui.panel == Panel::fleet && ui.fleet.selected_location() == target_) {
+                std::cout << "{\"keyboardOnly\":true,\"mistypeRecovered\":true,"
+                             "\"reportSelectionPreserved\":true}\n";
+                return true;
+            }
+            break;
+        }
+        return std::nullopt;
+    }
+
+  private:
+    static bool press(SDL_Window *window, SDL_Scancode scancode, SDL_Keycode key,
+                      SDL_Keymod modifiers = SDL_KMOD_NONE) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.windowID = SDL_GetWindowID(window);
+        event.key.scancode = scancode;
+        event.key.key = key;
+        event.key.mod = modifiers;
+        event.key.down = true;
+        if (!SDL_PushEvent(&event)) {
+            return false;
+        }
+        event.type = SDL_EVENT_KEY_UP;
+        event.key.mod = SDL_KMOD_NONE;
+        event.key.down = false;
+        return SDL_PushEvent(&event);
+    }
+
+    static bool type(SDL_Window *window, const char *value) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_TEXT_INPUT;
+        event.text.windowID = SDL_GetWindowID(window);
+        event.text.text = value;
+        return SDL_PushEvent(&event);
+    }
+
+    enum class Stage {
+        open_search,
+        enter_mistype,
+        submit_mistype,
+        recover_search,
+        enter_location,
+        submit_location,
+        open_maintenance,
+        return_to_report,
+        verify_report,
+        verify_fleet
+    };
+    const Uint64 started_{SDL_GetTicks()};
+    const std::size_t target_{Fleet::initial_location(1)};
+    Stage stage_{Stage::open_search};
+};
+
 app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode mode,
                  bool demo_scene, float test_scale) {
     Graphics graphics{window, test_scale};
@@ -1169,13 +1340,16 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
     std::optional<FleetProbe> probe;
     std::optional<AisleProbe> aisle_probe;
     std::optional<AuditReviewProbe> review;
+    std::optional<KeyboardProbe> keyboard;
     const auto started = SDL_GetTicks();
     if (mode == Mode::fleet_traffic || mode == Mode::fleet_traffic_reverse) {
         aisle_probe.emplace(mode == Mode::fleet_traffic_reverse);
     } else if (review_probe(mode)) {
         review.emplace(mode);
+    } else if (mode == Mode::fleet_keyboard) {
+        keyboard.emplace();
     } else if (verification && mode != Mode::fleet_data_fault &&
-               mode != Mode::fleet_profile_report) {
+               mode != Mode::fleet_profile_report && mode != Mode::fleet_profile_idle) {
         probe.emplace(mode);
     }
     const auto hold = [&] {
@@ -1235,6 +1409,16 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             ui.hold_fleet();
         }
         ui.tick_fleet(focused);
+        if (mode == Mode::fleet_profile_idle && now - started >= 2600) {
+            const auto *fleet = ui.fleet.get();
+            if (!fleet || fleet->history_error() || !fleet->motion_available() || fleet->busy(0) ||
+                fleet->busy(1) || fleet->frame(0).telemetry.sample_tick == 0 ||
+                ui.panel != Panel::fleet || ui.fleet.layout().horizontal_scroll) {
+                return Error::graphics_present;
+            }
+            std::cout << "{\"idleFleet\":true,\"warmupMs\":400}\n";
+            return std::monostate{};
+        }
         if (mode == Mode::fleet_profile_report) {
             ui.fleet.select_location(Fleet::initial_location(0));
             ui.panel = Panel::locations;
@@ -1284,6 +1468,13 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         }
         if (review) {
             if (const auto result = review->advance(ui, window)) {
+                hold();
+                return *result ? app::Status{std::monostate{}}
+                               : app::Status{Error::graphics_present};
+            }
+        }
+        if (keyboard) {
+            if (const auto result = keyboard->advance(ui, window)) {
                 hold();
                 return *result ? app::Status{std::monostate{}}
                                : app::Status{Error::graphics_present};
@@ -1340,7 +1531,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         const double elapsed = static_cast<double>(SDL_GetPerformanceCounter() - before) * 1000.0 /
                                static_cast<double>(SDL_GetPerformanceFrequency());
         tour.frame(elapsed, scene_ms, ui);
-        if (desktop_metrics.enabled && !minimized && fleet_panel(ui.panel)) {
+        if (desktop_metrics.enabled && !minimized && fleet_panel(ui.panel) &&
+            (mode != Mode::fleet_profile_idle || now - started >= 400)) {
             desktop_metrics.record(ui.panel == Panel::fleet       ? Metric::fleet_frame
                                    : ui.panel == Panel::locations ? Metric::audit_frame
                                                                   : Metric::maintenance_frame,
@@ -1400,7 +1592,8 @@ app::Status desktop(const app::Options &options, Mode mode) {
     const bool large_layout =
         mode == Mode::fleet_profile_report && layout_check && std::string_view{layout_check} == "1";
     const bool compact = recording || mode == Mode::fleet_reopen || review_probe(mode) ||
-                         desktop_metrics.enabled || mode == Mode::fleet_profile_report;
+                         desktop_metrics.enabled || mode == Mode::fleet_profile_report ||
+                         mode == Mode::fleet_profile_idle || mode == Mode::fleet_keyboard;
     const std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{
         SDL_CreateWindow(title,
                          large_layout ? 1600
@@ -1445,6 +1638,12 @@ app::Status verify_data_fault(const app::Options &options) {
 app::Status profile_report(const app::Options &options) {
     return desktop(options, Mode::fleet_profile_report);
 }
+app::Status profile_idle(const app::Options &options) {
+    return desktop(options, Mode::fleet_profile_idle);
+}
+app::Status verify_keyboard(const app::Options &options) {
+    return desktop(options, Mode::fleet_keyboard);
+}
 app::Status verify_review(const app::Options &options) {
     return desktop(options, Mode::fleet_review);
 }
@@ -1467,6 +1666,7 @@ int main(int argc, char **argv) {
          option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
          option == "--ui-fleet-traffic" || option == "--ui-fleet-traffic-reverse" ||
          option == "--ui-fleet-data-fault" || option == "--ui-fleet-profile-report" ||
+         option == "--ui-fleet-profile-idle" || option == "--ui-fleet-keyboard" ||
          option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
          option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
         const auto path = std::string_view{argv[2]};
@@ -1493,6 +1693,8 @@ int main(int argc, char **argv) {
                            : option == "--ui-fleet-traffic-reverse" ? verify_reverse_traffic
                            : option == "--ui-fleet-data-fault"      ? verify_data_fault
                            : option == "--ui-fleet-profile-report"  ? profile_report
+                           : option == "--ui-fleet-profile-idle"    ? profile_idle
+                           : option == "--ui-fleet-keyboard"        ? verify_keyboard
                            : option == "--ui-fleet-review"          ? verify_review
                            : option == "--ui-fleet-review-reopen"   ? reopen_review
                            : option == "--ui-dashboard-record"      ? record_dashboard

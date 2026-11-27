@@ -28,6 +28,7 @@ struct DashboardLayout {
     bool shelf_ids{};
     bool hold_visible{};
     bool history_issue_visible{};
+    bool location_no_match{};
     std::size_t products{};
     bool compared{};
     std::size_t filtered_reviews{};
@@ -52,6 +53,7 @@ class FleetPanel {
     [[nodiscard]] std::size_t selected_location() const noexcept { return location_; }
     void select(std::size_t index) noexcept;
     void select_location(std::size_t index);
+    void focus_location_search() noexcept { focus_location_search_ = true; }
 
   private:
     void robots(Panel &panel);
@@ -71,6 +73,7 @@ class FleetPanel {
     float pan_y_{};
     bool discrepancies_only_{};
     bool review_only_{};
+    bool focus_location_search_{};
     DashboardLayout layout_;
 };
 

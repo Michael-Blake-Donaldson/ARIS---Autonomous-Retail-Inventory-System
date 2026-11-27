@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <utility>
 
 namespace argus::desktop {
 namespace {
@@ -463,13 +464,26 @@ void FleetPanel::locations() {
         select(static_cast<std::size_t>(robot));
     }
     ImGui::SetNextItemWidth(-1.0F);
-    ImGui::InputTextWithHint("##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(),
-                             shelf_filter_.size());
+    if (std::exchange(focus_location_search_, false)) {
+        ImGui::SetKeyboardFocusHere();
+    }
+    const bool submitted = ImGui::InputTextWithHint(
+        "##shelf-search", "Search shelf or Waco ID", shelf_filter_.data(), shelf_filter_.size(),
+        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
     layout_.location_search = item_center();
     ImGui::Checkbox("Needs review only", &review_only_);
     layout_.review_filter = item_center();
     const auto query = trim_search(shelf_filter_.data());
     const auto list = Fleet::locations();
+    if (submitted && !query.empty()) {
+        const auto exact = std::ranges::find_if(list, [&](const auto &location) {
+            const auto &id = location.id.value;
+            return id.size() == query.size() && matches_location_search(id, query);
+        });
+        if (exact != list.end()) {
+            select_location(static_cast<std::size_t>(exact - list.begin()));
+        }
+    }
     ImGui::Separator();
     if (!query.empty() || review_only_) {
         bool matched = false;
@@ -486,6 +500,7 @@ void FleetPanel::locations() {
             if (query.empty()) {
                 ImGui::TextDisabled("No locations need review");
             } else {
+                layout_.location_no_match = true;
                 ImGui::TextWrapped("No matching locations. Check the shelf or Waco ID.");
                 if (ImGui::Button("Clear search")) {
                     shelf_filter_[0] = '\0';

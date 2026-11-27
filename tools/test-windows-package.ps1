@@ -191,6 +191,7 @@ try {
     $fleetReopen = $null
     $review = $null
     $reviewReopen = $null
+    $keyboard = $null
     $traffic = $null
     $reverseTraffic = $null
     $dataFault = $null
@@ -238,6 +239,9 @@ try {
         $reviewReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-review-reopen', $fleetData) | ConvertFrom-Json
         Assert-Package ($reviewReopen.reopened -and $reviewReopen.reviewed -and $reviewReopen.recheckLinked -and
             $reviewReopen.comparisonVisible) 'Portable replacement could not reopen the reviewed report and re-audit.'
+        $keyboard = Invoke-Portable 'argus-desktop' @('--ui-fleet-keyboard', $fleetData) | ConvertFrom-Json
+        Assert-Package ($keyboard.keyboardOnly -and $keyboard.mistypeRecovered -and
+            $keyboard.reportSelectionPreserved) 'Portable keyboard audit workflow failed.'
         [void][IO.Directory]::CreateDirectory($faultData)
         $damaged = Join-Path $faultData 'missions.db'
         [IO.File]::WriteAllText($damaged, 'deliberately damaged mission database')
@@ -263,7 +267,7 @@ try {
         $checks += @('native-continuous-workflow', 'native-reopen-after-replacement', 'native-data-after-uninstall')
         $checks += @('native-fleet-audits', 'native-audit-review', 'native-shared-aisle',
             'native-fleet-recovery-after-replacement', 'native-review-after-replacement',
-            'native-damaged-journal', 'native-reverse-aisle-request-order')
+            'native-damaged-journal', 'native-reverse-aisle-request-order', 'native-keyboard-audit')
     }
     $graphics = if ($NativeUi) {
         @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
@@ -281,6 +285,7 @@ try {
         nativeFleetReopen = $fleetReopen
         nativeReview = $review
         nativeReviewReopen = $reviewReopen
+        nativeKeyboard = $keyboard
         nativeTraffic = $traffic
         nativeReverseTraffic = $reverseTraffic
         nativeDataFault = $dataFault
