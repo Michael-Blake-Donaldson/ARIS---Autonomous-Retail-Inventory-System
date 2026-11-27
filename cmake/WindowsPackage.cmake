@@ -20,15 +20,15 @@ foreach(port IN ITEMS fmt imgui nlohmann-json picosha2 sdl3 spdlog sqlite3)
     install(FILES "${port_root}/share/${port}/copyright"
         DESTINATION "licenses/${port}")
 endforeach()
-install(FILES README.md CHANGELOG.md docs/release/NOTICE.md DESTINATION .)
+install(FILES README.md CHANGELOG.md vcpkg.json docs/release/NOTICE.md DESTINATION .)
 install(FILES tools/test-windows-package.ps1 DESTINATION verification)
 install(DIRECTORY assets/inventory assets/warehouse DESTINATION examples
     FILES_MATCHING PATTERN "*.json" PATTERN "*.csv")
-install(DIRECTORY docs/ DESTINATION docs FILES_MATCHING
-    PATTERN "*.md" PATTERN "evidence" EXCLUDE)
-install(FILES docs/testing/evidence/phase-10-operations-center.png
-    docs/testing/evidence/phase-13-lidar-hold.png docs/testing/evidence/phase-14-saved-run.png
-    DESTINATION docs/testing/evidence)
+install(DIRECTORY docs/ DESTINATION docs FILES_MATCHING PATTERN "*.md" PATTERN "*.png")
+# Preserve repository-relative targets referenced by the packaged documentation.
+install(FILES assets/warehouse/scenario.schema.json DESTINATION assets/warehouse)
+install(DIRECTORY assets/inventory/photos DESTINATION assets/inventory FILES_MATCHING PATTERN "*.bmp")
+install(FILES include/argus/sensors/observations.hpp DESTINATION include/argus/sensors)
 install(DIRECTORY "${CMAKE_BINARY_DIR}/release-evidence/" DESTINATION verification)
 
 set(CPACK_GENERATOR ZIP)

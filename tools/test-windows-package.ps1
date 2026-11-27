@@ -113,7 +113,9 @@ try {
         $results.count -eq @($results.tests | Where-Object result -eq 'passed').Count) 'Invalid build evidence.'
     foreach ($notice in @('NOTICE.md', 'licenses/sdl3/copyright', 'licenses/sqlite3/copyright',
             'verification/sbom/SHA256SUMS', 'docs/release/onboarding.md',
-            'verification/test-windows-package.ps1',
+            'verification/test-windows-package.ps1', 'README.md', 'vcpkg.json',
+            'docs/images/fleet.png', 'docs/images/location-audit.png',
+            'docs/images/robot-maintenance.png',
             'docs/testing/evidence/phase-14-saved-run.png')) {
         Assert-Package (Test-Path -LiteralPath (Join-Path $first $notice) -PathType Leaf) "Missing $notice."
     }
