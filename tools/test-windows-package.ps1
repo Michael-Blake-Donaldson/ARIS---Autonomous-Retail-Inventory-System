@@ -233,7 +233,7 @@ try {
         Assert-Package $uiReopen.savedRunReopenedAfterRestart 'Portable replacement did not reopen the saved desktop run.'
         $fleetReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-reopen', $fleetData) | ConvertFrom-Json
         Assert-Package ($fleetReopen.reopenedAfterRestart -and $fleetReopen.dashboard1280x720 -and
-            $fleetReopen.returnedToBerth -and $fleetReopen.auditSavedAfterHold -and
+            $fleetReopen.auditContextRestored -and $fleetReopen.returnedToBerth -and $fleetReopen.auditSavedAfterHold -and
             $fleetReopen.focusLossHeldFleet) 'Portable replacement could not recover the fleet and preserve audit evidence through an interrupted return.'
         $reviewReopen = Invoke-Portable 'argus-desktop' @('--ui-fleet-review-reopen', $fleetData) | ConvertFrom-Json
         Assert-Package ($reviewReopen.reopened -and $reviewReopen.reviewed -and $reviewReopen.recheckLinked -and
