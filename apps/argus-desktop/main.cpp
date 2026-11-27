@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "desktop_metrics.hpp"
 #include "live_engine.hpp"
 #include "panels.hpp"
 #include "robot_run.hpp"
@@ -36,6 +37,7 @@ enum class Mode {
     fleet_traffic,
     fleet_traffic_reverse,
     fleet_data_fault,
+    fleet_profile_report,
     fleet_review,
     fleet_review_reopen,
     dashboard_record,
@@ -48,7 +50,8 @@ bool review_probe(Mode mode) noexcept {
 bool fleet_probe(Mode mode) noexcept {
     return mode == Mode::fleet_smoke || mode == Mode::fleet_reopen || mode == Mode::fleet_traffic ||
            mode == Mode::fleet_traffic_reverse || mode == Mode::fleet_data_fault ||
-           mode == Mode::dashboard_record || review_probe(mode);
+           mode == Mode::fleet_profile_report || mode == Mode::dashboard_record ||
+           review_probe(mode);
 }
 bool captures_video(Mode mode) noexcept {
     return mode == Mode::record || mode == Mode::dashboard_record || mode == Mode::review_record;
@@ -1140,7 +1143,8 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         aisle_probe.emplace(mode == Mode::fleet_traffic_reverse);
     } else if (review_probe(mode)) {
         review.emplace(mode);
-    } else if (verification && mode != Mode::fleet_data_fault) {
+    } else if (verification && mode != Mode::fleet_data_fault &&
+               mode != Mode::fleet_profile_report) {
         probe.emplace(mode);
     }
     const auto hold = [&] {
@@ -1153,6 +1157,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         }
     };
     while (true) {
+        const auto frame_started = desktop_metrics.start();
         const auto before = SDL_GetPerformanceCounter();
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
@@ -1199,6 +1204,17 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             ui.hold_fleet();
         }
         ui.tick_fleet(focused);
+        if (mode == Mode::fleet_profile_report) {
+            ui.fleet.select_location(Fleet::initial_location(0));
+            ui.panel = Panel::locations;
+            if (SDL_GetTicks() - started >= 1600) {
+                if (!ui.fleet.get() || ui.fleet.get()->history_error() ||
+                    ui.fleet.layout().products < 20 || ui.fleet.layout().horizontal_scroll) {
+                    return Error::graphics_present;
+                }
+                return std::monostate{};
+            }
+        }
         if (mode == Mode::fleet_data_fault) {
             const auto *fleet = ui.fleet.get();
             if (!fleet || !fleet->history_error() || SDL_GetTicks() - started > 10000) {
@@ -1272,11 +1288,10 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         if (!fleet_scene && ui.fleet.get()) {
             fleet_scene.emplace(ui.fleet.get()->layout());
         }
-        if (!minimized &&
-            !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture,
-                           mode == Mode::interactive ? nullptr : &scene_ms,
-                           review ? review->input() : (probe ? probe->input() : std::nullopt),
-                           fleet_scene ? &*fleet_scene : nullptr)) {
+        const auto pointer = review ? review->input() : (probe ? probe->input() : std::nullopt);
+        if (!minimized && !graphics.draw(scene, engine.get(), ui, focused, demo_scene, capture,
+                                         mode == Mode::interactive ? nullptr : &scene_ms, pointer,
+                                         fleet_scene ? &*fleet_scene : nullptr)) {
             hold();
             if (capture || !graphics.rebuild() ||
                 !graphics.draw(scene, engine.get(), ui, false, demo_scene, nullptr, nullptr, {},
@@ -1290,11 +1305,23 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
         const double elapsed = static_cast<double>(SDL_GetPerformanceCounter() - before) * 1000.0 /
                                static_cast<double>(SDL_GetPerformanceFrequency());
         tour.frame(elapsed, scene_ms, ui);
+        if (desktop_metrics.enabled && !minimized && fleet_panel(ui.panel)) {
+            desktop_metrics.record(ui.panel == Panel::fleet       ? Metric::fleet_frame
+                                   : ui.panel == Panel::locations ? Metric::audit_frame
+                                                                  : Metric::maintenance_frame,
+                                   frame_started);
+            if (pointer && !pointer->down) {
+                desktop_metrics.record(Metric::input, frame_started);
+            }
+        }
         SDL_Delay(minimized ? 30U : 12U);
     }
 }
 
 app::Status desktop(const app::Options &options, Mode mode) {
+    const auto *profile = SDL_getenv("ARGUS_PROFILE_DESKTOP");
+    desktop_metrics.enabled =
+        mode != Mode::interactive && profile && std::string_view{profile} == "1";
     if (options.warehouse_source == app::WarehouseSource::export_fixture) {
         return app::export_warehouse(options.fixture);
     }
@@ -1334,7 +1361,8 @@ app::Status desktop(const app::Options &options, Mode mode) {
     if (recording && !app::use_binary_mode(stdout)) {
         return Error::output_failure;
     }
-    const bool compact = recording || mode == Mode::fleet_reopen || review_probe(mode);
+    const bool compact = recording || mode == Mode::fleet_reopen || review_probe(mode) ||
+                         desktop_metrics.enabled || mode == Mode::fleet_profile_report;
     const std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{
         SDL_CreateWindow(title, compact ? Recorder::width : 1392, compact ? Recorder::height : 860,
                          recording ? flags : flags | SDL_WINDOW_HIGH_PIXEL_DENSITY),
@@ -1343,7 +1371,11 @@ app::Status desktop(const app::Options &options, Mode mode) {
         return Error::window_creation;
     }
     SDL_SetWindowMinimumSize(window.get(), 900, 610);
-    return loop(window.get(), engine, mode, demo_scene);
+    auto result = loop(window.get(), engine, mode, demo_scene);
+    if (desktop_metrics.enabled) {
+        desktop_metrics.write(std::cerr);
+    }
+    return result;
 }
 
 app::Status interactive(const app::Options &options) { return desktop(options, Mode::interactive); }
@@ -1366,6 +1398,9 @@ app::Status verify_reverse_traffic(const app::Options &options) {
 app::Status verify_data_fault(const app::Options &options) {
     return desktop(options, Mode::fleet_data_fault);
 }
+app::Status profile_report(const app::Options &options) {
+    return desktop(options, Mode::fleet_profile_report);
+}
 app::Status verify_review(const app::Options &options) {
     return desktop(options, Mode::fleet_review);
 }
@@ -1383,12 +1418,13 @@ app::Status record_dashboard(const app::Options &options) {
 
 int main(int argc, char **argv) {
     const auto option = argc > 1 ? std::string_view{argv[1]} : std::string_view{};
-    if (argc == 3 && (option == "--operations-data" || option == "--ui-smoke" ||
-                      option == "--ui-reopen" || option == "--ui-fleet-smoke" ||
-                      option == "--ui-fleet-reopen" || option == "--ui-fleet-traffic" ||
-                      option == "--ui-fleet-traffic-reverse" || option == "--ui-fleet-data-fault" ||
-                      option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
-                      option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
+    if (argc == 3 &&
+        (option == "--operations-data" || option == "--ui-smoke" || option == "--ui-reopen" ||
+         option == "--ui-fleet-smoke" || option == "--ui-fleet-reopen" ||
+         option == "--ui-fleet-traffic" || option == "--ui-fleet-traffic-reverse" ||
+         option == "--ui-fleet-data-fault" || option == "--ui-fleet-profile-report" ||
+         option == "--ui-fleet-review" || option == "--ui-fleet-review-reopen" ||
+         option == "--ui-dashboard-record" || option == "--ui-fleet-review-record")) {
         const auto path = std::string_view{argv[2]};
         if (path.empty() || path.size() > 4096) {
             std::cerr << "argus-desktop: Choose an existing operations data directory.\n";
@@ -1412,6 +1448,7 @@ int main(int argc, char **argv) {
                            : option == "--ui-fleet-traffic"         ? verify_traffic
                            : option == "--ui-fleet-traffic-reverse" ? verify_reverse_traffic
                            : option == "--ui-fleet-data-fault"      ? verify_data_fault
+                           : option == "--ui-fleet-profile-report"  ? profile_report
                            : option == "--ui-fleet-review"          ? verify_review
                            : option == "--ui-fleet-review-reopen"   ? reopen_review
                            : option == "--ui-dashboard-record"      ? record_dashboard

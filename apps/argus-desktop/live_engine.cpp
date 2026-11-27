@@ -1,4 +1,5 @@
 #include "live_engine.hpp"
+#include "desktop_metrics.hpp"
 
 #include "argus/audit/stockroom.hpp"
 #include "map_run.hpp"
@@ -44,7 +45,9 @@ ObservedFrame::ObservedFrame(const LiveFrame &frame)
       reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
       navigation{frame.navigation}, run{frame.run}, archived{frame.archived},
       map_revision{frame.map_revision}, traffic_yield{frame.traffic_yield},
-      returning_to_berth{frame.returning_to_berth} {}
+      returning_to_berth{frame.returning_to_berth} {
+    desktop_metrics.grid_copy(static_cast<std::size_t>(grid.columns()) * grid.rows());
+}
 
 LiveFrame ObservedFrame::view() const noexcept {
     const auto *scan = lidar ? &*lidar : nullptr;
@@ -116,7 +119,10 @@ Result<LiveEngine, app::Failure> LiveEngine::create(simulation::Warehouse wareho
 
 bool LiveEngine::advance(robot::Command command) {
     if (fleet_) {
-        return fleet_->clock->step(fleet_->id, robot_, command);
+        const auto started = desktop_metrics.start();
+        const auto stepped = fleet_->clock->step(fleet_->id, robot_, command);
+        desktop_metrics.record(Metric::fleet_step, started);
+        return stepped;
     }
     robot_.step(command);
     return true;
