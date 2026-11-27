@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Force $data | Out-Null
 .\bin\argus-desktop.exe --operations-data $data
 ```
 
-Launching `argus-desktop.exe` without a data directory starts a temporary session. For updates, close ARGUS, back up the data directory, and extract the new program to a separate folder. Launch it with the same data directory. To remove the portable app, close it and delete the extracted program folder. The data directory remains available. The current preview binaries are unsigned. [Installation, storage, and troubleshooting](docs/release/onboarding.md)
+Launching `argus-desktop.exe` without a data directory starts a temporary session. For updates, close ARGUS, back up the data directory, and extract the new program to a separate folder. Launch it with the same data directory. To remove the portable app, close it and delete the extracted program folder. The data directory remains available. The current preview binaries are unsigned.
 
 ## Run your first audit
 
