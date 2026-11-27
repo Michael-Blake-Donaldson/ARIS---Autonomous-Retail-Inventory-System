@@ -147,3 +147,11 @@ The review produces a findings register and an improvement backlog. Record and p
 | Engineer | Ship changes that earn their cost | Profile rendering and snapshot work to find actual hot spots. Compare candidates against the baseline and its observed variability. Resolve material regressions before acceptance or record an explicit tradeoff with measured impact and a reason. Verify completed audit contents, fleet behavior and seeded headless output. |
 
 Judge visual polish by readability, task completion and responsiveness. Record before-and-after captures and benchmark results for the packaged desktop.
+
+## Phase 27 keyboard workflows and idle desktop verification
+
+| Actor | Use case | Acceptance |
+| --- | --- | --- |
+| Operator | Find a saved audit with a keyboard | Open location search, type a shelf or Waco ID, and submit an exact match. Read the report, open Maintenance, and return to the same report with no pointer input. Commands that move a robot remain deliberate. |
+| Reviewer | Verify the packaged keyboard path | Run the native search and navigation probe against seeded audit history and run it again from the extracted Windows package. |
+| Performance reviewer | Measure idle Fleet independently | Measure an exclusively idle Fleet display after startup warmup. Record frame and tick percentiles, grid backing allocations and peak working set over repeated local Release runs. Record the separate-host and physical DPI gates as open when unavailable. |

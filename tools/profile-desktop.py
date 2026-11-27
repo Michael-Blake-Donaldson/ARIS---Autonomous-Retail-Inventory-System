@@ -64,6 +64,11 @@ def measure(executable, mode, directory, *, large_layout=False):
         raise RuntimeError(f"{mode} did not emit its benchmark: {diagnostics}")
     result = {**reports[0], "peakWorkingSetBytes": peak}
     result.setdefault("gridBackingAllocations", result["gridCopies"])
+    if mode == "--ui-fleet-profile-idle":
+        proof = json.loads(output)
+        if proof != {"idleFleet": True, "warmupMs": 400} or result["fleetFrame"]["samples"] < 90:
+            raise RuntimeError(f"Incomplete idle Fleet sample: {proof}, {result['fleetFrame']}")
+        result["idle"] = proof
     if large_layout:
         layout = json.loads(output)
         if layout != {"productsVisible": 20, "width": 1600, "height": 900, "fontScale": 1.25}:
@@ -112,7 +117,9 @@ def main():
     parser.add_argument("--candidate", type=Path)
     parser.add_argument("--pairs", type=int, default=3, choices=range(1, 11))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--check-large-layout", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check-large-layout", action="store_true")
+    mode.add_argument("--idle-only", action="store_true")
     args = parser.parse_args()
     if args.check_large_layout:
         with TemporaryDirectory(prefix="argus-layout-") as root:
@@ -130,7 +137,11 @@ def main():
     for index in range(args.pairs):
         order = list(builds) if index % 2 == 0 else list(reversed(builds))
         for label in order:
-            results[label].append(run(builds[label]))
+            if args.idle_only:
+                with TemporaryDirectory(prefix="argus-idle-") as root:
+                    results[label].append(measure(builds[label], "--ui-fleet-profile-idle", Path(root)))
+            else:
+                results[label].append(run(builds[label]))
             args.output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
             print(f"{label} trial {index + 1} complete", flush=True)
 
