@@ -1186,11 +1186,19 @@ class AuditReviewProbe {
 class KeyboardProbe {
   public:
     std::optional<bool> advance(Panels &ui, SDL_Window *window) {
+        const auto result = step(ui, window);
+        if (result && !*result) {
+            std::cerr << "Keyboard audit probe failed at stage " << static_cast<int>(stage_)
+                      << '\n';
+        }
+        return result;
+    }
+
+  private:
+    std::optional<bool> step(Panels &ui, SDL_Window *window) {
         auto *fleet = ui.fleet.get();
         if (!fleet || fleet->history_error() || fleet->review_error(target_) ||
             fleet->history(target_).empty() || SDL_GetTicks() - started_ > 30000) {
-            std::cerr << "Keyboard audit probe failed at stage " << static_cast<int>(stage_)
-                      << '\n';
             return false;
         }
         const auto history = fleet->history(target_);
@@ -1262,8 +1270,7 @@ class KeyboardProbe {
         case Stage::verify_report:
             if (ui.panel == Panel::locations && ui.fleet.selected_location() == target_ &&
                 ui.fleet.selected() == 1 && layout.products != 0 && !layout.horizontal_scroll) {
-                if (history.size() != 1 || !history.front().needs_review() ||
-                    !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
+                if (!history.front().needs_review() || !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
                     return false;
                 }
                 source_ = history.front().audit.key();
@@ -1328,11 +1335,11 @@ class KeyboardProbe {
             }
             break;
         case Stage::verify_recheck:
-            if (history.size() == 2) {
-                if (history.front().audit.recheck_of != source_ ||
+            if (history.front().audit.key() != source_) {
+                if (history.size() < 2 || history.front().audit.recheck_of != source_ ||
                     history.front().audit.robot != RobotId{2} ||
-                    history.back().audit.key() != source_ || !history.back().audit.reviewed_ms ||
-                    history.back().audit.report != evidence_ ||
+                    history[1].audit.key() != source_ || !history[1].audit.reviewed_ms ||
+                    history[1].audit.report != evidence_ ||
                     ui.fleet.selected_location() != target_ ||
                     !press(window, SDL_SCANCODE_F6, SDLK_F6)) {
                     return false;
@@ -1352,7 +1359,6 @@ class KeyboardProbe {
         return std::nullopt;
     }
 
-  private:
     static bool press(SDL_Window *window, SDL_Scancode scancode, SDL_Keycode key,
                       SDL_Keymod modifiers = SDL_KMOD_NONE) {
         SDL_Event event{};
