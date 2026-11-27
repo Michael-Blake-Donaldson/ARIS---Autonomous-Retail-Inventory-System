@@ -38,21 +38,24 @@ make_robot(const simulation::Warehouse &warehouse, std::uint64_t start_tick,
 
 } // namespace
 
-ObservedFrame::ObservedFrame(const LiveFrame &frame)
-    : telemetry{frame.telemetry}, grid{frame.grid},
+ObservedFrame::ObservedFrame(const LiveFrame &frame, GridSnapshotCache *cache)
+    : telemetry{frame.telemetry},
+      grid{cache ? cache->capture(frame) : std::make_shared<const mapping::Grid>(frame.grid)},
       lidar{frame.lidar ? std::optional{*frame.lidar} : std::nullopt},
       route(frame.route.begin(), frame.route.end()), trace(frame.trace.begin(), frame.trace.end()),
       reads{frame.rfid_reads}, unique{frame.unique_epcs}, estimate{frame.estimate},
       navigation{frame.navigation}, run{frame.run}, archived{frame.archived},
       map_revision{frame.map_revision}, traffic_yield{frame.traffic_yield},
       returning_to_berth{frame.returning_to_berth} {
-    desktop_metrics.grid_copy(static_cast<std::size_t>(grid.columns()) * grid.rows());
+    if (!cache) {
+        desktop_metrics.grid_copy(grid->evidence().size());
+    }
 }
 
 LiveFrame ObservedFrame::view() const noexcept {
     const auto *scan = lidar ? &*lidar : nullptr;
     return {telemetry,
-            grid,
+            *grid,
             scan,
             route,
             trace,

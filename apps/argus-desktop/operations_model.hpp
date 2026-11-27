@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -120,6 +121,24 @@ struct LiveFrame {
     [[nodiscard]] bool exploring() const noexcept {
         return navigation && navigation->state != navigation::State::finished;
     }
+};
+
+class GridSnapshotCache {
+  public:
+    [[nodiscard]] std::shared_ptr<const mapping::Grid> capture(const LiveFrame &frame);
+
+  private:
+    struct Key {
+        mapping::Spec spec;
+        RunId run;
+        std::uint64_t revision;
+        bool archived;
+        bool operator==(const Key &) const = default;
+    };
+    std::optional<Key> key_;
+    // A slot is writable only while the pool is its sole owner.
+    std::array<std::shared_ptr<mapping::Grid>, 3> buffers_{};
+    std::shared_ptr<const mapping::Grid> grid_;
 };
 
 struct DiagnosticsFrame {

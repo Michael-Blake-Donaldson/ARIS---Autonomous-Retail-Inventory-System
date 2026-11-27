@@ -41,10 +41,13 @@ class DesktopMetrics {
         }
     }
 
-    void grid_copy(std::size_t bytes) noexcept {
+    void grid_copy(std::size_t cells, bool allocated = true) noexcept {
         if (enabled) {
             copies_.fetch_add(1, std::memory_order_relaxed);
-            bytes_.fetch_add(bytes, std::memory_order_relaxed);
+            cells_.fetch_add(cells, std::memory_order_relaxed);
+            if (allocated) {
+                allocations_.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -68,8 +71,8 @@ class DesktopMetrics {
             out << '"' << names[i] << "\":{\"samples\":" << count << ",\"p95Ms\":" << percentile(95)
                 << ",\"p99Ms\":" << percentile(99) << "},";
         }
-        out << "\"gridCopies\":" << copies_.load() << ",\"gridCellsCopied\":" << bytes_.load()
-            << "}}\n";
+        out << "\"gridCopies\":" << copies_.load() << ",\"gridCellsCopied\":" << cells_.load()
+            << ",\"gridBackingAllocations\":" << allocations_.load() << "}}\n";
     }
 
     bool enabled{};
@@ -81,7 +84,8 @@ class DesktopMetrics {
     };
     std::array<Samples, static_cast<std::size_t>(Metric::count)> values_{};
     std::atomic_size_t copies_{};
-    std::atomic_size_t bytes_{};
+    std::atomic_size_t cells_{};
+    std::atomic_size_t allocations_{};
 };
 
 inline DesktopMetrics desktop_metrics;

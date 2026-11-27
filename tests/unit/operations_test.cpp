@@ -11,6 +11,40 @@ namespace {
 
 using namespace argus::desktop;
 
+TEST(OperationsModel, SnapshotSharesOnlyTheSameRevisionAndKeepsOlderEvidenceImmutable) {
+    using namespace argus;
+    auto grid = std::get<mapping::Grid>(mapping::Grid::create({ScenarioId{1}, 1000, 1000, 250}));
+    LiveFrame frame{{}, grid, nullptr, {}, {}, 0, 0, {}, {}, {}, RunId{1}, false, 0};
+    GridSnapshotCache cache;
+    const auto first = cache.capture(frame);
+    EXPECT_EQ(cache.capture(frame), first);
+    grid.observe_hit({0.1, 0.1}, {0.8, 0.8});
+    ++frame.map_revision;
+    const auto second = cache.capture(frame);
+    ASSERT_NE(first, second);
+    EXPECT_TRUE(std::ranges::equal(second->evidence(), grid.evidence()));
+    EXPECT_FALSE(std::ranges::equal(first->evidence(), second->evidence()));
+    frame.run = RunId{2};
+    const auto other_run = cache.capture(frame);
+    EXPECT_NE(other_run, second);
+    frame.archived = true;
+    EXPECT_NE(cache.capture(frame), other_run);
+}
+
+TEST(OperationsModel, SnapshotReusesAnUnreferencedGridBackingBuffer) {
+    using namespace argus;
+    auto grid = std::get<mapping::Grid>(mapping::Grid::create({ScenarioId{1}, 1000, 1000, 250}));
+    LiveFrame frame{{}, grid, nullptr, {}, {}, 0, 0, {}, {}, {}, RunId{1}, false, 0};
+    GridSnapshotCache cache;
+    const auto *first_buffer = cache.capture(frame)->evidence().data();
+    ++frame.map_revision;
+    const auto second = cache.capture(frame);
+    grid.observe_hit({0.1, 0.1}, {0.8, 0.8});
+    ++frame.map_revision;
+    const auto third = cache.capture(frame);
+    EXPECT_EQ(third->evidence().data(), first_buffer);
+    EXPECT_FALSE(std::ranges::equal(second->evidence(), third->evidence()));
+}
 TEST(OperationsModel, SearchToleratesWhitespaceAndRecoversAfterWrongIds) {
     using namespace argus;
     EXPECT_TRUE(trim_search(" \t ").empty());

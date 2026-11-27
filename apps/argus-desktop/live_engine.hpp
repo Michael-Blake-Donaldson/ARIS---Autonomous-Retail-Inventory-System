@@ -15,11 +15,11 @@ namespace argus::desktop {
 
 // Owns the observation-only data for rendering while the worker owns the live run.
 struct ObservedFrame {
-    explicit ObservedFrame(const LiveFrame &frame);
+    explicit ObservedFrame(const LiveFrame &frame, GridSnapshotCache *cache = nullptr);
     [[nodiscard]] LiveFrame view() const noexcept;
 
     robot::Telemetry telemetry;
-    mapping::Grid grid;
+    std::shared_ptr<const mapping::Grid> grid;
     std::optional<sensors::LidarScan> lidar;
     std::vector<mapping::Point> route;
     std::vector<mapping::Point> trace;

@@ -368,7 +368,7 @@ void Workbench::publish(WorkResult result) {
 
 void Workbench::publish_preview(const LiveEngine &engine) {
     const auto started = desktop_metrics.start();
-    auto frame = std::make_shared<ObservedFrame>(engine.frame());
+    auto frame = std::make_shared<ObservedFrame>(engine.frame(), &preview_grid_);
     desktop_metrics.record(Metric::snapshot, started);
     std::scoped_lock lock{mutex_};
     preview_ = std::move(frame);

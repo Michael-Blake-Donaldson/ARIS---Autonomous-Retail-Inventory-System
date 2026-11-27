@@ -93,6 +93,7 @@ class Workbench {
     std::optional<Job> pending_{Job{JobKind::catalog}};
     std::optional<WorkResult> result_;
     std::shared_ptr<const ObservedFrame> preview_;
+    GridSnapshotCache preview_grid_;
     std::atomic_bool interrupted_{};
     std::atomic_bool emergency_{};
     bool busy_{true};

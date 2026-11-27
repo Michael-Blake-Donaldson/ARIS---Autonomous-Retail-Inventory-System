@@ -1,4 +1,5 @@
 #include "operations_model.hpp"
+#include "desktop_metrics.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,6 +7,31 @@
 #include <utility>
 
 namespace argus::desktop {
+
+std::shared_ptr<const mapping::Grid> GridSnapshotCache::capture(const LiveFrame &frame) {
+    const Key key{frame.grid.spec(), frame.run, frame.map_revision, frame.archived};
+    if (key_ == key) {
+        return grid_;
+    }
+    for (auto &slot : buffers_) {
+        if (!slot || slot.use_count() == 1) {
+            const bool allocated = !slot || slot->spec() != key.spec;
+            if (allocated) {
+                slot = std::make_shared<mapping::Grid>(frame.grid);
+            } else {
+                *slot = frame.grid;
+            }
+            grid_ = slot;
+            key_ = key;
+            desktop_metrics.grid_copy(frame.grid.evidence().size(), allocated);
+            return grid_;
+        }
+    }
+    grid_ = std::make_shared<const mapping::Grid>(frame.grid);
+    key_ = key;
+    desktop_metrics.grid_copy(frame.grid.evidence().size());
+    return grid_;
+}
 
 std::string_view trim_search(std::string_view text) noexcept {
     const auto first = text.find_first_not_of(" \t");
