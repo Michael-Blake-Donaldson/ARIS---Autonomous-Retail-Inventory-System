@@ -130,9 +130,22 @@ class Graphics {
 
     void event(const SDL_Event &event) const {
         ImGui_ImplSDL3_ProcessEvent(&event);
-        if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+        if ((event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+             event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) &&
+            event.window.windowID == SDL_GetWindowID(window_)) {
             update_scale();
         }
+    }
+
+    [[nodiscard]] bool queue_test_scale(float scale) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED;
+        event.window.windowID = SDL_GetWindowID(window_);
+        if (!SDL_PushEvent(&event)) {
+            return false;
+        }
+        test_scale_ = scale;
+        return true;
     }
     [[nodiscard]] bool photos_ready() const noexcept { return photos_.ready(); }
 
@@ -207,7 +220,8 @@ class Graphics {
         const auto density = std::max(1.0F, SDL_GetWindowPixelDensity(window_));
         const auto scale =
             test_scale_ > 0 ? test_scale_ : SDL_GetWindowDisplayScale(window_) / density;
-        ImGui::GetStyle().FontScaleDpi = std::clamp(scale, 1.0F, 1.5F);
+        ImGui::GetStyle().FontScaleDpi =
+            std::isfinite(scale) ? std::clamp(scale, 1.0F, 1.5F) : 1.0F;
     }
 
     void close() {
@@ -1185,17 +1199,19 @@ class AuditReviewProbe {
 
 class KeyboardProbe {
   public:
-    std::optional<bool> advance(Panels &ui, SDL_Window *window) {
-        const auto result = step(ui, window);
+    std::optional<bool> advance(Panels &ui, SDL_Window *window, Graphics &graphics) {
+        const auto result = step(ui, window, graphics);
         if (result && !*result) {
             std::cerr << "Keyboard audit probe failed at stage " << static_cast<int>(stage_)
-                      << '\n';
+                      << " (font scale " << ImGui::GetStyle().FontScaleDpi
+                      << ", horizontal overflow " << ui.fleet.layout().overflow_width << " at "
+                      << ui.fleet.layout().overflow_position << ")\n";
         }
         return result;
     }
 
   private:
-    std::optional<bool> step(Panels &ui, SDL_Window *window) {
+    std::optional<bool> step(Panels &ui, SDL_Window *window, Graphics &graphics) {
         auto *fleet = ui.fleet.get();
         if (!fleet || fleet->history_error() || fleet->review_error(target_) ||
             fleet->history(target_).empty() || SDL_GetTicks() - started_ > 30000) {
@@ -1235,14 +1251,19 @@ class KeyboardProbe {
             break;
         case Stage::enter_location:
             if (ImGui::GetIO().WantTextInput) {
-                if (!press(window, SDL_SCANCODE_F10, SDLK_F10) || !type(window, " a20j06-w01 ")) {
+                const auto size = ImGui::GetIO().DisplaySize;
+                if (size.x != Recorder::width || size.y != Recorder::height ||
+                    ImGui::GetStyle().FontScaleDpi != 1.0F ||
+                    !press(window, SDL_SCANCODE_F10, SDLK_F10) || !type(window, " a20j06-w01 ") ||
+                    !graphics.queue_test_scale(1.5F)) {
                     return false;
                 }
                 stage_ = Stage::submit_location;
             }
             break;
         case Stage::submit_location:
-            if (!ImGui::GetIO().WantTextInput || layout.recheck_focused || fleet->busy(1) ||
+            if (ImGui::GetStyle().FontScaleDpi != 1.5F || !ImGui::GetIO().WantTextInput ||
+                layout.horizontal_scroll || layout.recheck_focused || fleet->busy(1) ||
                 !press(window, SDL_SCANCODE_RETURN, SDLK_RETURN)) {
                 return false;
             }
@@ -1251,16 +1272,18 @@ class KeyboardProbe {
         case Stage::open_maintenance:
             if (ui.fleet.selected_location() == target_ && layout.products != 0 &&
                 !ImGui::GetIO().WantTextInput) {
-                if (!press(window, SDL_SCANCODE_F8, SDLK_F8)) {
+                if (layout.horizontal_scroll || !press(window, SDL_SCANCODE_F8, SDLK_F8)) {
                     return false;
                 }
+                scaled_products_ = layout.products;
+                source_ = history.front().audit.key();
                 stage_ = Stage::return_to_report;
             }
             break;
         case Stage::return_to_report:
             if (ui.panel == Panel::maintenance) {
                 const auto overlays = ui.display_overlays(ui.display_frame());
-                if (!overlays.lidar || !overlays.trace ||
+                if (!overlays.lidar || !overlays.trace || !graphics.queue_test_scale(1.0F) ||
                     !press(window, SDL_SCANCODE_F7, SDLK_F7)) {
                     return false;
                 }
@@ -1269,11 +1292,13 @@ class KeyboardProbe {
             break;
         case Stage::verify_report:
             if (ui.panel == Panel::locations && ui.fleet.selected_location() == target_ &&
-                ui.fleet.selected() == 1 && layout.products != 0 && !layout.horizontal_scroll) {
-                if (!history.front().needs_review() || !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
+                ui.fleet.selected() == 1 && layout.products == scaled_products_ &&
+                scaled_products_ != 0 && !layout.horizontal_scroll &&
+                ImGui::GetStyle().FontScaleDpi == 1.0F) {
+                if (history.front().audit.key() != source_ || !history.front().needs_review() ||
+                    !press(window, SDL_SCANCODE_F9, SDLK_F9)) {
                     return false;
                 }
-                source_ = history.front().audit.key();
                 evidence_ = history.front().audit.report;
                 stage_ = Stage::confirm_review;
             }
@@ -1351,7 +1376,7 @@ class KeyboardProbe {
             if (ui.panel == Panel::fleet && ui.fleet.selected_location() == target_) {
                 std::cout << "{\"keyboardOnly\":true,\"mistypeRecovered\":true,"
                              "\"reportSelectionPreserved\":true,\"reviewed\":true,"
-                             "\"recheckLinked\":true}\n";
+                             "\"recheckLinked\":true,\"scaleRoundTrip\":true}\n";
                 return true;
             }
             break;
@@ -1408,6 +1433,7 @@ class KeyboardProbe {
     const Uint64 started_{SDL_GetTicks()};
     const std::size_t target_{Fleet::initial_location(1)};
     Stage stage_{Stage::open_search};
+    std::size_t scaled_products_{};
     std::optional<mission::ShelfAuditKey> source_;
     std::string evidence_;
 };
@@ -1575,7 +1601,7 @@ app::Status loop(SDL_Window *window, std::unique_ptr<LiveEngine> &engine, Mode m
             }
         }
         if (keyboard) {
-            if (const auto result = keyboard->advance(ui, window)) {
+            if (const auto result = keyboard->advance(ui, window, graphics)) {
                 hold();
                 return *result ? app::Status{std::monostate{}}
                                : app::Status{Error::graphics_present};
@@ -1709,7 +1735,8 @@ app::Status desktop(const app::Options &options, Mode mode) {
         return Error::window_creation;
     }
     SDL_SetWindowMinimumSize(window.get(), 900, 610);
-    auto result = loop(window.get(), engine, mode, demo_scene, large_layout ? 1.25F : 0.0F);
+    const float test_scale = large_layout ? 1.25F : mode == Mode::fleet_keyboard ? 1.0F : 0.0F;
+    auto result = loop(window.get(), engine, mode, demo_scene, test_scale);
     if (desktop_metrics.enabled) {
         desktop_metrics.write(std::cerr);
     }

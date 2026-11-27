@@ -242,7 +242,7 @@ try {
         $keyboard = Invoke-Portable 'argus-desktop' @('--ui-fleet-keyboard', $fleetData) | ConvertFrom-Json
         Assert-Package ($keyboard.keyboardOnly -and $keyboard.mistypeRecovered -and
             $keyboard.reportSelectionPreserved -and $keyboard.reviewed -and
-            $keyboard.recheckLinked) 'Portable keyboard audit workflow failed.'
+            $keyboard.recheckLinked -and $keyboard.scaleRoundTrip) 'Portable keyboard audit or display scale workflow failed.'
         [void][IO.Directory]::CreateDirectory($faultData)
         $damaged = Join-Path $faultData 'missions.db'
         [IO.File]::WriteAllText($damaged, 'deliberately damaged mission database')

@@ -49,7 +49,8 @@ execute_process(COMMAND "${ARGUS_DESKTOP}" --ui-fleet-keyboard "${data}"
 if(NOT result STREQUAL "0" OR NOT output MATCHES "\"keyboardOnly\":true" OR
     NOT output MATCHES "\"mistypeRecovered\":true" OR
     NOT output MATCHES "\"reportSelectionPreserved\":true" OR
-    NOT output MATCHES "\"reviewed\":true" OR NOT output MATCHES "\"recheckLinked\":true")
+    NOT output MATCHES "\"reviewed\":true" OR NOT output MATCHES "\"recheckLinked\":true" OR
+    NOT output MATCHES "\"scaleRoundTrip\":true")
     message(FATAL_ERROR "Keyboard audit failed (${result})\n${output}\n${diagnostics}\nData: ${data}")
 endif()
 message(STATUS "${output}")
