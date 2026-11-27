@@ -8,7 +8,7 @@ The built-in stockroom has four aisles and 21 auditable locations. Whole shelves
 
 ## Quick start
 
-The portable desktop preview targets **Windows 11 x64** with an interactive OpenGL-capable graphics driver. Use a window of at least 1280 Ã— 720 for the documented workflow. The ZIP includes its app-local runtime. Keep the bundled DLLs beside the executables.
+The portable desktop preview targets **Windows 11 x64** with an interactive OpenGL-capable graphics driver. Use a window of at least 1280 × 720 for the documented workflow. The ZIP includes its app-local runtime. Keep the bundled DLLs beside the executables.
 
 1. Obtain the Windows x64 ZIP and its SHA-256 from the same trusted release channel.
 2. Verify the ZIP with `Get-FileHash -Algorithm SHA256 .\ARGUS-0.1.0-windows-x64.zip` and compare the result with the expected digest.
@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Force $data | Out-Null
 .\bin\argus-desktop.exe --operations-data $data
 ```
 
-Launching `argus-desktop.exe` without a data directory starts a temporary session. For updates, extract the new program to a separate folder and reuse the same data directory. Back up the data with ARGUS closed before updating. The current preview binaries are unsigned. [Installation, storage, and troubleshooting](docs/release/onboarding.md)
+Launching `argus-desktop.exe` without a data directory starts a temporary session. For updates, close ARGUS, back up the data directory, and extract the new program to a separate folder. Launch it with the same data directory. To remove the portable app, close it and delete the extracted program folder. The data directory remains available. The current preview binaries are unsigned. [Installation, storage, and troubleshooting](docs/release/onboarding.md)
 
 ## Run your first audit
 
@@ -29,8 +29,6 @@ Launching `argus-desktop.exe` without a data directory starts a temporary sessio
 3. Once an audit is complete, choose **Open audit** or use **Location Audits** to search by location ID. Review the product photo, name, DPCI, and expected and observed quantities. Expand the RFID evidence when you need individual tag details.
 4. For a report that needs review, choose **Mark reviewed** after checking the discrepancies. Choose **Re-audit location** with an available robot to collect new evidence. The new report links to its source for a side-by-side comparison.
 5. With durable storage enabled, restart ARGUS using the same data directory and reopen the report from **Location Audits**.
-
-[Operations center guide](docs/operations-center.md)
 
 ## Location Audits
 
@@ -64,7 +62,7 @@ bin\argus-headless.exe --warehouse small-backroom --export-map 80 > backroom.arg
 bin\argus-headless.exe --warehouse small-backroom --map-stdin < backroom.argmap
 ```
 
-Built-in scenarios include `small-backroom`, `cluttered-receiving`, `broad-stockroom`, and `rfid-audit`. Use `--help` for available options. The inventory CLI supports catalog imports, DPCI lookup, and RFID audit exports. The mission CLI supports queued work, checkpoints, and recovery. [Warehouse files](docs/warehouse.md) Â· [Mapping](docs/mapping.md) Â· [Inventory CLI](docs/inventory.md) Â· [Mission CLI](docs/missions.md)
+Built-in scenarios include `small-backroom`, `cluttered-receiving`, `broad-stockroom`, and `rfid-audit`. Use `--help` for available options. The inventory CLI supports catalog imports, DPCI lookup, and RFID audit exports. The mission CLI supports queued work, checkpoints, and recovery.
 
 ## Build from source
 
@@ -110,8 +108,8 @@ cmake --workflow --preset linux-ci
 
 ## Architecture and verification
 
-The simulator generates seeded odometry, LiDAR, and RFID observations. Operational navigation and audits consume those observations and estimates. Exact simulated positions and placements are isolated in simulation and explicit diagnostic or evaluation paths. A shared clock synchronizes fleet motion, while SQLite stores audit records, review timestamps, and re-audit links. [Architecture and interfaces](docs/release/architecture.md)
+The simulator generates seeded odometry, LiDAR, and RFID observations. Operational navigation and audits consume those observations and estimates. Exact simulated positions and placements are isolated in simulation and explicit diagnostic or evaluation paths. A shared clock synchronizes fleet motion, while SQLite stores audit records, review timestamps, and re-audit links.
 
-The build pictured above passed 136 Windows Release tests and 26 checks against the extracted portable package, including audit history across replacement and keyboard operation through a simulated display-scale change. Clean-machine Windows acceptance and physical monitor DPI transitions remain open. [Verification report](docs/testing/phase-29.md) Â· [Performance evidence](docs/testing/phase-26.md) Â· [Engineering roadmap](docs/requirements.md)
+The Windows release checks cover audit history across package replacement and keyboard operation through a simulated display-scale change. The portable ZIP includes build and test evidence under `verification/`. Clean-machine Windows acceptance and physical monitor DPI transitions remain open.
 
-ARGUS uses fictional inventory and probabilistic RFID simulation. Its readings are uncalibrated, and its motion and hold behavior apply within the simulated warehouse. [Release notes](docs/release/release-page.md) Â· [Changelog](CHANGELOG.md) Â· [Distribution notice](docs/release/NOTICE.md)
+ARGUS uses fictional inventory and probabilistic RFID simulation. Its readings are uncalibrated, and its motion and hold behavior apply within the simulated warehouse. [Distribution notice](NOTICE.md)

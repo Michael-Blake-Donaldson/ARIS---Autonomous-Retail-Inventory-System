@@ -112,11 +112,10 @@ try {
         $proof.sourceCommit -cmatch '^[0-9a-f]{40}$' -and $results.count -ge 100 -and
         $results.count -eq @($results.tests | Where-Object result -eq 'passed').Count) 'Invalid build evidence.'
     foreach ($notice in @('NOTICE.md', 'licenses/sdl3/copyright', 'licenses/sqlite3/copyright',
-            'verification/sbom/SHA256SUMS', 'docs/release/onboarding.md',
+            'verification/sbom/SHA256SUMS',
             'verification/test-windows-package.ps1', 'README.md', 'vcpkg.json',
             'docs/images/fleet.png', 'docs/images/location-audit.png',
-            'docs/images/robot-maintenance.png',
-            'docs/testing/evidence/phase-14-saved-run.png')) {
+            'docs/images/robot-maintenance.png')) {
         Assert-Package (Test-Path -LiteralPath (Join-Path $first $notice) -PathType Leaf) "Missing $notice."
     }
     foreach ($name in @('argus-headless', 'argus-desktop')) {
